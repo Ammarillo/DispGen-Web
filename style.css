@@ -1,0 +1,249 @@
+html, body {
+  height: 100%;
+}
+
+#threeCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Toggle switch styles - span moves when checkbox is checked */
+input[type="checkbox"].peer:checked ~ span {
+  transform: translateX(1.5rem);
+}
+
+/* Disable default number input spinner arrows */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+  z-index: 1000;
+}
+
+/* Custom range slider styles */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-track {
+  background: rgb(30 41 59);
+  height: 8px;
+  border-radius: 4px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgb(99 102 241);
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  border: 2px solid rgb(99 102 241);
+  margin-top: -4px;
+}
+
+input[type="range"]::-moz-range-track {
+  background: rgb(30 41 59);
+  height: 8px;
+  border-radius: 4px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  background: rgb(99 102 241);
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  border: 2px solid rgb(99 102 241);
+  cursor: pointer;
+}
+
+/* Dual range slider container */
+#slopeRangeMin,
+#slopeRangeMax {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  z-index: 10;
+}
+
+#slopeRangeMax {
+  z-index: 20;
+}
+
+#slopeRangeMin::-webkit-slider-thumb,
+#slopeRangeMax::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border: 2px solid rgb(99 102 241);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: all;
+  position: relative;
+}
+
+#slopeRangeMin::-webkit-slider-runnable-track,
+#slopeRangeMax::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 8px;
+  background: transparent;
+}
+
+#slopeRangeMin::-moz-range-thumb,
+#slopeRangeMax::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: white;
+  border: 2px solid rgb(99 102 241);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: all;
+}
+
+#slopeRangeMin::-moz-range-track,
+#slopeRangeMax::-moz-range-track {
+  width: 100%;
+  height: 8px;
+  background: transparent;
+}
+
+#slopeRangeTrack {
+  pointer-events: none;
+  z-index: 1;
+  height: 8px;
+  border-radius: 4px;
+}
+
+/* Single range sliders (falloff, noise scale, brush size, brush strength) */
+#slopeFalloff,
+#noiseScale,
+#noiseBalance,
+#noiseContrast,
+#brushSize,
+#brushStrength {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  z-index: 10;
+}
+
+#slopeFalloff::-webkit-slider-thumb,
+#noiseScale::-webkit-slider-thumb,
+#noiseBalance::-webkit-slider-thumb,
+#noiseContrast::-webkit-slider-thumb,
+#brushSize::-webkit-slider-thumb,
+#brushStrength::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border: 2px solid rgb(99 102 241);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: all;
+  position: relative;
+}
+
+#slopeFalloff::-webkit-slider-runnable-track,
+#noiseScale::-webkit-slider-runnable-track,
+#noiseBalance::-webkit-slider-runnable-track,
+#noiseContrast::-webkit-slider-runnable-track,
+#brushSize::-webkit-slider-runnable-track,
+#brushStrength::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 8px;
+  background: transparent;
+}
+
+#slopeFalloff::-moz-range-thumb,
+#noiseScale::-moz-range-thumb,
+#noiseBalance::-moz-range-thumb,
+#noiseContrast::-moz-range-thumb,
+#brushSize::-moz-range-thumb,
+#brushStrength::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: white;
+  border: 2px solid rgb(99 102 241);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: all;
+}
+
+#slopeFalloff::-moz-range-track,
+#noiseScale::-moz-range-track,
+#noiseBalance::-moz-range-track,
+#noiseContrast::-moz-range-track,
+#brushSize::-moz-range-track,
+#brushStrength::-moz-range-track {
+  width: 100%;
+  height: 8px;
+  background: transparent;
+}
+
+/* Range sliders in noise type-specific panel */
+#noiseTypeSpecific input[type="range"] {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  z-index: 10;
+}
+
+#noiseTypeSpecific input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border: 2px solid rgb(99 102 241);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: all;
+  position: relative;
+}
+
+#noiseTypeSpecific input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 8px;
+  background: transparent;
+}
+
+#noiseTypeSpecific input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: white;
+  border: 2px solid rgb(99 102 241);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: all;
+}
+
+#noiseTypeSpecific input[type="range"]::-moz-range-track {
+  width: 100%;
+  height: 8px;
+  background: transparent;
+}

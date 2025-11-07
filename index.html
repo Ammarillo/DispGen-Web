@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DispGen Reborn (Web)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="bg-slate-950 text-slate-100 min-h-screen">
+    <div class="flex min-h-screen flex-col lg:flex-row">
+      <aside class="w-full border-r border-slate-800 bg-slate-950/80 px-6 py-8 lg:w-96">
+        <div class="space-y-6">
+          <header class="space-y-2">
+            <h1 class="text-2xl font-semibold tracking-tight text-white">DispGen Web</h1>
+            <p class="text-sm text-slate-400">Heightmap → VMF with live preview</p>
+          </header>
+
+          <!-- Tab Navigation -->
+          <div class="flex gap-2 border-b border-slate-800">
+            <button id="tabTerrain" class="tab-button active px-4 py-2 text-sm font-medium text-slate-300 border-b-2 border-indigo-500 transition" data-tab="terrain">
+              Terrain
+            </button>
+            <button id="tabMaterial" class="tab-button px-4 py-2 text-sm font-medium text-slate-400 border-b-2 border-transparent hover:text-slate-300 transition" data-tab="material">
+              Material/Mask
+            </button>
+          </div>
+
+          <!-- Terrain Tab -->
+          <div id="tabContentTerrain" class="tab-content space-y-6">
+            <section class="space-y-3">
+              <label for="heightmapInput" class="block text-xs uppercase tracking-wide text-slate-400">
+                Heightmap
+              </label>
+              <input
+                id="heightmapInput"
+                type="file"
+                accept="image/*"
+                class="block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-indigo-500/40 focus:outline-none focus:ring-0 focus:border-slate-800 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-600/20 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-100 hover:file:bg-indigo-600/30"
+              />
+            </section>
+
+            <section class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tiles X</label>
+                <div class="relative flex items-center max-w-full">
+                  <button type="button" data-input-counter-decrement="tilesX" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                    </svg>
+                  </button>
+                  <input type="number" id="tilesX" min="1" max="256" value="32" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                  <button type="button" data-input-counter-increment="tilesX" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tiles Y</label>
+                <div class="relative flex items-center max-w-full">
+                  <button type="button" data-input-counter-decrement="tilesY" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                    </svg>
+                  </button>
+                  <input type="number" id="tilesY" min="1" max="256" value="32" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                  <button type="button" data-input-counter-increment="tilesY" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tile Size (units)</label>
+                <div class="relative flex items-center max-w-full">
+                  <button type="button" data-input-counter-decrement="tileSize" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                    </svg>
+                  </button>
+                  <input type="number" id="tileSize" min="1" max="10000" value="512" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                  <button type="button" data-input-counter-increment="tileSize" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Max Height (units)</label>
+                <div class="relative flex items-center max-w-full">
+                  <button type="button" data-input-counter-decrement="maxHeight" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                    </svg>
+                  </button>
+                  <input type="number" id="maxHeight" min="1" max="10000" value="2048" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                  <button type="button" data-input-counter-increment="maxHeight" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="space-y-3">
+              <div>
+                <label class="text-xs uppercase tracking-wide text-slate-400">Disp Power</label>
+                <select id="dispPower" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+                  <option value="2">2</option>
+                  <option value="3" selected>3</option>
+                  <option value="4">4</option>
+                </select>
+              </div>
+            </section>
+
+            <section class="space-y-3">
+              <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
+                <span>Auto Update Preview</span>
+                <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+                  <input id="autoUpdate" type="checkbox" checked class="sr-only peer" />
+                  <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+                </div>
+              </label>
+              <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
+                <span>Show Tile Grid</span>
+                <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+                  <input id="showGrid" type="checkbox" class="sr-only peer" />
+                  <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+                </div>
+              </label>
+            </section>
+
+            <section class="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs text-slate-300">
+              <h2 class="text-sm font-semibold text-slate-200">World Dimensions</h2>
+              <pre id="dimensions" class="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-slate-400"></pre>
+            </section>
+
+            <div class="space-y-3">
+              <button id="previewBtn" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500" disabled>
+                Preview 3D
+              </button>
+              <button class="generate-vmf-btn w-full rounded-lg border border-indigo-500/60 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 shadow-sm transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500" disabled>
+                Generate VMF
+              </button>
+            </div>
+          </div>
+
+          <!-- Material/Mask Tab -->
+          <div id="tabContentMaterial" class="tab-content hidden space-y-6">
+            <section class="space-y-3">
+              <div>
+                <label class="text-xs uppercase tracking-wide text-slate-400">Material Path</label>
+                <input id="materialPath" type="text" value="dev/dev_blendmeasure" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none" />
+              </div>
+            </section>
+
+            <section class="space-y-3">
+              <h2 class="text-sm font-semibold text-slate-200">Mask Editor</h2>
+
+              <div class="flex gap-2">
+                <button id="undoMask" class="flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed" title="Undo (Ctrl+Z)">
+                  <svg class="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
+                  </svg>
+                </button>
+                <button id="redoMask" class="flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed" title="Redo (Ctrl+Y)">
+                  <svg class="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
+                  </svg>
+                </button>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <button id="genSlopeMask" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Generate Slope</button>
+                <button id="genNoiseMask" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Generate Noise</button>
+              </div>
+              <label for="maskInput" class="block text-xs uppercase tracking-wide text-slate-400">
+                Import Mask
+              </label>
+              <input
+                id="maskInput"
+                type="file"
+                accept="image/*"
+                class="block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-indigo-500/40 focus:outline-none focus:ring-0 focus:border-slate-800 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-600/20 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-100 hover:file:bg-indigo-600/30"
+              />
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Brush Size</label>
+                  <div class="relative h-2">
+                    <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+                    <input id="brushSize" type="range" min="2" max="64" value="16" class="absolute top-0 w-full h-2 z-10">
+                  </div>
+                  <div class="flex justify-between mt-2 text-xs text-slate-400">
+                    <span>2</span>
+                    <span id="brushSizeValue">16</span>
+                    <span>64</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Brush Strength</label>
+                  <div class="relative h-2">
+                    <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+                    <input id="brushStrength" type="range" min="1" max="100" value="40" class="absolute top-0 w-full h-2 z-10">
+                  </div>
+                  <div class="flex justify-between mt-2 text-xs text-slate-400">
+                    <span>1</span>
+                    <span id="brushStrengthValue">40</span>
+                    <span>100</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <button id="brushPaintMode" class="flex-1 rounded-lg border border-indigo-500 bg-indigo-500/20 px-3 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/30" title="Paint Mode">
+                  <svg class="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                  </svg>
+                </button>
+                <button id="brushEraseMode" class="flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-800/70" title="Erase Mode">
+                  <svg class="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                  </svg>
+                </button>
+              </div>
+              <button id="clearMask" class="w-full rounded-lg border border-rose-700 bg-rose-900/30 px-3 py-2 text-sm text-rose-200 hover:bg-rose-900/40">Clear Mask</button>
+            </section>
+            
+            <div class="space-y-3">
+              <button class="generate-vmf-btn w-full rounded-lg border border-indigo-500/60 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 shadow-sm transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500" disabled>
+                Generate VMF
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main id="viewer" class="relative flex-1 bg-gradient-to-br from-slate-900 via-slate-950 to-black">
+        <canvas id="threeCanvas" class="block h-full w-full"></canvas>
+        <div class="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-slate-950/10"></div>
+      </main>
+    </div>
+
+    <!-- Mask Generator Side Panel -->
+    <div id="maskGeneratorPanel" class="fixed top-0 right-0 h-full w-96 bg-slate-950 border-l border-slate-800 shadow-2xl transform translate-x-full transition-transform duration-300 z-50 overflow-y-auto">
+      <div class="p-6 space-y-6">
+        <div class="flex items-center justify-between">
+          <h2 id="maskGeneratorTitle" class="text-xl font-semibold text-white">Mask Generator</h2>
+          <button id="closeMaskGenerator" class="text-slate-400 hover:text-white transition">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Slope Mask Panel -->
+        <div id="slopeMaskPanel" class="hidden space-y-4">
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Mode</label>
+            <select id="slopeMaskMode" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+              <option value="add">Add</option>
+              <option value="subtract">Subtract</option>
+            </select>
+          </div>
+          <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
+            <span>Invert Mask</span>
+            <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+              <input id="slopeMaskInvert" type="checkbox" class="sr-only peer" />
+              <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+            </div>
+          </label>
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Slope Range</label>
+            <div class="relative h-2">
+              <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+              <div id="slopeRangeTrack" class="absolute h-2 bg-indigo-500 rounded-full top-1/2 -translate-y-1/2"></div>
+              <input type="range" id="slopeRangeMin" min="0" max="255" value="60" class="absolute top-0 w-full h-2 z-10">
+              <input type="range" id="slopeRangeMax" min="0" max="255" value="255" class="absolute top-0 w-full h-2 z-20">
+            </div>
+            <div class="flex justify-between mt-2 text-xs text-slate-400">
+              <span id="slopeRangeMinValue">60</span>
+              <span id="slopeRangeMaxValue">255</span>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Falloff Range</label>
+            <div class="relative h-2">
+              <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+              <input type="range" id="slopeFalloff" min="-100" max="100" value="-50" class="absolute top-0 w-full h-2 z-10">
+            </div>
+            <div class="flex justify-between mt-2 text-xs text-slate-400">
+              <span>-100</span>
+              <span id="slopeFalloffValue">-50</span>
+              <span>100</span>
+            </div>
+          </div>
+          <button id="applySlopeMask" class="w-full rounded-lg border border-indigo-500 bg-indigo-500/20 px-4 py-2 text-sm font-medium text-indigo-200 hover:bg-indigo-500/30 transition">Apply Slope Mask</button>
+        </div>
+
+        <!-- Noise Mask Panel -->
+        <div id="noiseMaskPanel" class="hidden space-y-4">
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Mode</label>
+            <select id="noiseMaskMode" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+              <option value="add">Add</option>
+              <option value="subtract">Subtract</option>
+            </select>
+          </div>
+          <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
+            <span>Invert Mask</span>
+            <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+              <input id="noiseMaskInvert" type="checkbox" class="sr-only peer" />
+              <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+            </div>
+          </label>
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Noise Type</label>
+            <select id="noiseType" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+              <option value="perlin">Perlin</option>
+              <option value="simplex">Simplex</option>
+              <option value="value">Value</option>
+              <option value="cellular">Cellular</option>
+              <option value="voronoi">Voronoi</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Seed</label>
+            <div class="flex gap-2">
+              <input type="number" id="noiseSeed" value="0" class="flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+              <button id="randomSeedBtn" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white transition" title="Random Seed">
+                <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" fill="currentColor">
+                  <path d="M467.8 98.4C479.8 93.4 493.5 96.2 502.7 105.3L566.7 169.3C572.7 175.3 576.1 183.4 576.1 191.9C576.1 200.4 572.7 208.5 566.7 214.5L502.7 278.5C493.5 287.7 479.8 290.4 467.8 285.4C455.8 280.4 448 268.9 448 256L448 224L416 224C405.9 224 396.4 228.7 390.4 236.8L358 280L318 226.7L339.2 198.4C357.3 174.2 385.8 160 416 160L448 160L448 128C448 115.1 455.8 103.4 467.8 98.4zM218 360L258 413.3L236.8 441.6C218.7 465.8 190.2 480 160 480L96 480C78.3 480 64 465.7 64 448C64 430.3 78.3 416 96 416L160 416C170.1 416 179.6 411.3 185.6 403.2L218 360zM502.6 534.6C493.4 543.8 479.7 546.5 467.7 541.5C455.7 536.5 448 524.9 448 512L448 480L416 480C385.8 480 357.3 465.8 339.2 441.6L185.6 236.8C179.6 228.7 170.1 224 160 224L96 224C78.3 224 64 209.7 64 192C64 174.3 78.3 160 96 160L160 160C190.2 160 218.7 174.2 236.8 198.4L390.4 403.2C396.4 411.3 405.9 416 416 416L448 416L448 384C448 371.1 455.8 359.4 467.8 354.4C479.8 349.4 493.5 352.2 502.7 361.3L566.7 425.3C572.7 431.3 576.1 439.4 576.1 447.9C576.1 456.4 572.7 464.5 566.7 470.5L502.7 534.5z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Scale</label>
+            <div class="relative h-2">
+              <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+              <input type="range" id="noiseScale" min="1" max="200" value="32" class="absolute top-0 w-full h-2 z-10">
+            </div>
+            <div class="flex justify-between mt-2 text-xs text-slate-400">
+              <span>1</span>
+              <span id="noiseScaleValue">32</span>
+              <span>200</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Offset X</label>
+              <input type="number" id="noiseOffsetX" value="0" step="0.1" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+            </div>
+            <div>
+              <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Offset Y</label>
+              <input type="number" id="noiseOffsetY" value="0" step="0.1" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+            </div>
+          </div>
+          <div id="noiseTypeSpecific" class="space-y-4">
+            <!-- Type-specific settings will be added here dynamically -->
+          </div>
+          <div class="border-t border-slate-800 pt-4 space-y-4">
+            <div>
+              <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Balance</label>
+              <div class="relative h-2">
+                <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+                <input type="range" id="noiseBalance" min="-100" max="100" value="0" class="absolute top-0 w-full h-2 z-10">
+              </div>
+              <div class="flex justify-between mt-2 text-xs text-slate-400">
+                <span>-100</span>
+                <span id="noiseBalanceValue">0</span>
+                <span>100</span>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Contrast</label>
+              <div class="relative h-2">
+                <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+                <input type="range" id="noiseContrast" min="1" max="2000" value="100" class="absolute top-0 w-full h-2 z-10">
+              </div>
+              <div class="flex justify-between mt-2 text-xs text-slate-400">
+                <span>1</span>
+                <span id="noiseContrastValue">100</span>
+                <span>1000</span>
+              </div>
+            </div>
+          </div>
+          <button id="applyNoiseMask" class="w-full rounded-lg border border-indigo-500 bg-indigo-500/20 px-4 py-2 text-sm font-medium text-indigo-200 hover:bg-indigo-500/30 transition">Apply Noise Mask</button>
+        </div>
+
+        <!-- Live Preview -->
+        <div class="border-t border-slate-800 pt-4">
+          <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
+            <span>Live Preview</span>
+            <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+              <input id="maskLivePreview" type="checkbox" checked class="sr-only peer" />
+              <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+            </div>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mask Blend Modal -->
+    <div id="maskBlendModal" class="fixed inset-0 z-50 hidden">
+      <div id="maskBlendOverlay" class="absolute inset-0 bg-slate-900/80 backdrop-blur-sm"></div>
+      <div class="relative flex min-h-full w-full items-center justify-center p-4">
+        <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/95 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="maskBlendModalTitle">
+          <div class="border-b border-slate-800 px-6 py-4">
+            <h2 id="maskBlendModalTitle" class="text-lg font-semibold text-slate-100">Blend Imported Mask</h2>
+            <p class="mt-1 text-sm text-slate-400">How should we combine <span id="maskBlendFilename" class="font-medium text-slate-200">this mask</span> with the current material mask?</p>
+          </div>
+          <div class="space-y-4 px-6 py-5">
+            <div>
+              <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Rotation</label>
+              <div class="relative h-2">
+                <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+                <input type="range" id="maskBlendRotation" min="0" max="3" value="0" step="1" class="absolute top-0 w-full h-2 z-10">
+              </div>
+              <div class="flex justify-between mt-2 text-xs text-slate-400">
+                <span>0°</span>
+                <span id="maskBlendRotationValue">0°</span>
+                <span>270°</span>
+              </div>
+            </div>
+            <div class="space-y-3">
+              <button id="maskBlendAdd" class="w-full rounded-xl border border-emerald-500/50 bg-emerald-500/15 px-4 py-3 text-left text-emerald-100 transition hover:bg-emerald-500/20 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                <span class="block text-sm font-semibold">Add</span>
+              </button>
+              <button id="maskBlendSubtract" class="w-full rounded-xl border border-amber-500/50 bg-amber-500/15 px-4 py-3 text-left text-amber-100 transition hover:bg-amber-500/20 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                <span class="block text-sm font-semibold">Subtract</span>
+              </button>
+              <button id="maskBlendOverride" class="w-full rounded-xl border border-indigo-500/50 bg-indigo-500/15 px-4 py-3 text-left text-indigo-100 transition hover:bg-indigo-500/20 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <span class="block text-sm font-semibold">Override</span>
+              </button>
+            </div>
+          </div>
+          <div class="flex justify-end border-t border-slate-800 px-6 py-4">
+            <button id="maskBlendCancel" class="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-500">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+  </html>
+
+
