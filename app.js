@@ -250,6 +250,7 @@ function updateUndoRedoButtons() {
 }
 
 let paintingStarted = false; // Track if we've started a painting stroke
+let strokePreSnapshotSaved = false; // Track if we've saved pre-stroke state for current stroke
 
 function paintAtWorld(wx, wy){
   if (!state.mask) return;
@@ -271,7 +272,8 @@ function paintAtWorld(wx, wy){
   const strength = (parseInt(el.brushStrength.value, 10) || 40) / 100;
   const erase = state.brushMode === 'erase';
   applyBrush(cx, cy, radius, strength, erase);
-  if (el.autoUpdate.checked) render3DPreview();
+  // Live preview: render on every brush stroke to reflect changes immediately
+  render3DPreview();
 }
 
 function applyBrush(cx, cy, radius, strength, erase){
@@ -1554,19 +1556,25 @@ function ensureThree() {
     if (!hit) return;
     paintAtWorld(hit.point.x, hit.point.y, e.shiftKey);
   }
-  function onPointerDown(e){
+function onPointerDown(e){
     if (!isMaskModeEnabled() || e.button !== 0) return;
-    state.isPainting = true;
-    paintingStarted = false; // Reset for new stroke
-    onPointerMove(e);
+  state.isPainting = true;
+  // Save the pre-stroke snapshot so the first action is undoable
+  if (!strokePreSnapshotSaved) {
+    saveMaskState();
+    strokePreSnapshotSaved = true;
   }
-  function onPointerUp(){ 
+  paintingStarted = false; // Reset for new stroke
+  onPointerMove(e);
+  }
+function onPointerUp(){ 
     if (state.isPainting && paintingStarted) {
       // Save state when stroke ends so the complete stroke can be undone in one step
       saveMaskState();
     }
     state.isPainting = false;
-    paintingStarted = false; // Stroke ended
+  paintingStarted = false; // Stroke ended
+  strokePreSnapshotSaved = false;
   }
   function onPointerCancel(){ 
     if (state.isPainting && paintingStarted) {
@@ -2464,6 +2472,8 @@ if (el.brushStrength) {
 }
 
 // ------------------------ Mask Generator Panel ------------------------
+let generatorPreSnapshotSaved = false;
+
 function openMaskGeneratorPanel(type) {
   if (!el.maskGeneratorPanel) return;
   el.maskGeneratorPanel.classList.remove('translate-x-full');
@@ -2487,6 +2497,11 @@ function openMaskGeneratorPanel(type) {
     if (el.erosionMaskPanel) el.erosionMaskPanel.classList.add('hidden');
     // Generate preview immediately with current/default values
     if (state.heightmap) {
+      // Save pre-stroke snapshot once per generation session
+      if (!generatorPreSnapshotSaved) {
+        saveMaskState();
+        generatorPreSnapshotSaved = true;
+      }
       const min = parseInt(document.getElementById('slopeRangeMin')?.value || 60);
       const max = parseInt(document.getElementById('slopeRangeMax')?.value || 255);
       const falloff = parseInt(document.getElementById('slopeFalloff')?.value || -50);
@@ -2536,6 +2551,10 @@ function openMaskGeneratorPanel(type) {
     updateNoiseTypeSpecificUI(noiseType);
     // Generate preview immediately with current/default values (force update)
     if (state.heightmap) {
+      if (!generatorPreSnapshotSaved) {
+        saveMaskState();
+        generatorPreSnapshotSaved = true;
+      }
       updateNoisePreview(true);
     }
   } else if (type === 'erosion') {
@@ -2545,6 +2564,10 @@ function openMaskGeneratorPanel(type) {
     if (el.erosionMaskPanel) el.erosionMaskPanel.classList.remove('hidden');
 
     if (state.heightmap) {
+      if (!generatorPreSnapshotSaved) {
+        saveMaskState();
+        generatorPreSnapshotSaved = true;
+      }
       updateErosionPreview(true);
     }
   }
@@ -2556,6 +2579,7 @@ function closeMaskGeneratorPanel() {
   // Clear preview mask when closing
   state.previewMask = null;
   render3DPreview();
+  generatorPreSnapshotSaved = false;
 }
 
 // Dual range slider for slope

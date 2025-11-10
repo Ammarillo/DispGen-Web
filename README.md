@@ -1,4 +1,4 @@
-# DispGen Web
+# DispGen-Web
 
 A web-based tool for generating Source Engine displacement terrain from heightmap images. Convert grayscale heightmaps into VMF (Valve Map Format) files with real-time 3D preview and advanced material mask editing.
 
@@ -7,9 +7,9 @@ A web-based tool for generating Source Engine displacement terrain from heightma
 ## Features
 
 ### 🗺️ Heightmap to VMF Conversion
-- Import any grayscale image as a heightmap
+- Import any image as a heightmap
 - Automatic resizing to match tile configuration
-- Generate VMF files compatible with Source Engine (Half-Life 2, CS:GO, etc.)
+- Generate VMF files compatible with Source Engine (Half-Life 2, GMod, etc.)
 - Configurable tile grid (X/Y dimensions)
 - Adjustable tile size and maximum height
 - Centered coordinate system (terrain center at 0,0,0)
@@ -32,7 +32,6 @@ A web-based tool for generating Source Engine displacement terrain from heightma
 ### ⚙️ Advanced Options
 - Displacement power level (2-4, controls vertex density)
 - Custom material paths
-- Auto-update preview toggle
 - Dimension calculations with unit-to-meter conversion
 
 ## Getting Started
@@ -44,7 +43,7 @@ A web-based tool for generating Source Engine displacement terrain from heightma
 ### Usage
 
 1. **Open the Application**
-   - Simply open `web/index.html` in your web browser
+   - Simply open `index.html` in your web browser
    - Or host it on a web server for better performance
 
 2. **Load a Heightmap**
