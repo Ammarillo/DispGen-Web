@@ -18,6 +18,7 @@ const el = {
   showMask: null, // Removed checkbox, always enabled in Material tab
   genSlopeMask: document.getElementById('genSlopeMask'),
   genNoiseMask: document.getElementById('genNoiseMask'),
+  genErosionMask: document.getElementById('genErosionMask'),
   maskInput: document.getElementById('maskInput'),
   brushSize: document.getElementById('brushSize'),
   brushStrength: document.getElementById('brushStrength'),
@@ -35,6 +36,7 @@ const el = {
   closeMaskGenerator: document.getElementById('closeMaskGenerator'),
   slopeMaskPanel: document.getElementById('slopeMaskPanel'),
   noiseMaskPanel: document.getElementById('noiseMaskPanel'),
+  erosionMaskPanel: document.getElementById('erosionMaskPanel'),
   maskLivePreview: document.getElementById('maskLivePreview'),
   maskBlendModal: document.getElementById('maskBlendModal'),
   maskBlendOverlay: document.getElementById('maskBlendOverlay'),
@@ -287,6 +289,247 @@ function generateSlopeMask(minSlope = 60, maxSlope = 255, falloff = -50, outputM
       out[idx] = Math.max(0, Math.min(255, value));
     }
   }
+}
+
+function createSeededRandom(seed) {
+  if (!seed) {
+    return Math.random;
+  }
+  let s = seed >>> 0;
+  if (s === 0) {
+    s = 1;
+  }
+  return function(){
+    s += 0x6D2B79F5;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function sampleHeightAndGradient(hm, w, h, fx, fy) {
+  const x0 = Math.max(0, Math.min(w - 1, Math.floor(fx)));
+  const y0 = Math.max(0, Math.min(h - 1, Math.floor(fy)));
+  const x1 = Math.min(x0 + 1, w - 1);
+  const y1 = Math.min(y0 + 1, h - 1);
+  const dx = Math.min(1, Math.max(0, fx - x0));
+  const dy = Math.min(1, Math.max(0, fy - y0));
+  const i00 = y0 * w + x0;
+  const i10 = y0 * w + x1;
+  const i01 = y1 * w + x0;
+  const i11 = y1 * w + x1;
+  const h00 = hm[i00];
+  const h10 = hm[i10];
+  const h01 = hm[i01];
+  const h11 = hm[i11];
+  const height =
+    h00 * (1 - dx) * (1 - dy) +
+    h10 * dx * (1 - dy) +
+    h01 * (1 - dx) * dy +
+    h11 * dx * dy;
+  const gradientX = (h10 - h00) * (1 - dy) + (h11 - h01) * dy;
+  const gradientY = (h01 - h00) * (1 - dx) + (h11 - h10) * dx;
+  return { height, gradientX, gradientY };
+}
+
+function depositSedimentAt(hm, w, h, fx, fy, amount) {
+  if (amount <= 0) return;
+  const x0 = Math.max(0, Math.min(w - 1, Math.floor(fx)));
+  const y0 = Math.max(0, Math.min(h - 1, Math.floor(fy)));
+  const x1 = Math.min(x0 + 1, w - 1);
+  const y1 = Math.min(y0 + 1, h - 1);
+  const dx = Math.min(1, Math.max(0, fx - x0));
+  const dy = Math.min(1, Math.max(0, fy - y0));
+  const i00 = y0 * w + x0;
+  const i10 = y0 * w + x1;
+  const i01 = y1 * w + x0;
+  const i11 = y1 * w + x1;
+  const w00 = (1 - dx) * (1 - dy);
+  const w10 = dx * (1 - dy);
+  const w01 = (1 - dx) * dy;
+  const w11 = dx * dy;
+  hm[i00] += amount * w00;
+  hm[i10] += amount * w10;
+  hm[i01] += amount * w01;
+  hm[i11] += amount * w11;
+}
+
+function erodeSedimentAt(hm, erosionOut, w, h, fx, fy, amount, radius) {
+  if (amount <= 0) return 0;
+  const radiusInt = Math.max(1, Math.ceil(radius));
+  const cx = Math.floor(fx);
+  const cy = Math.floor(fy);
+  const indices = [];
+  let totalWeight = 0;
+  for (let yy = cy - radiusInt; yy <= cy + radiusInt; yy++) {
+    if (yy < 0 || yy >= h) continue;
+    for (let xx = cx - radiusInt; xx <= cx + radiusInt; xx++) {
+      if (xx < 0 || xx >= w) continue;
+      const dx = (xx + 0.5) - fx;
+      const dy = (yy + 0.5) - fy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > radius) continue;
+      const weight = 1 - dist / radius;
+      if (weight <= 0) continue;
+      indices.push({ idx: yy * w + xx, weight });
+      totalWeight += weight;
+    }
+  }
+  if (totalWeight <= 1e-6) return 0;
+  let removedTotal = 0;
+  const invTotal = 1 / totalWeight;
+  for (let i = 0; i < indices.length; i++) {
+    const { idx, weight } = indices[i];
+    const portion = amount * weight * invTotal;
+    const available = Math.min(portion, hm[idx]);
+    if (available <= 0) continue;
+    hm[idx] -= available;
+    erosionOut[idx] += available;
+    removedTotal += available;
+  }
+  return removedTotal;
+}
+
+function generateErosionMask(options = {}, outputMask = null) {
+  if (!state.heightmap) return null;
+  const W = state.resizedWidth;
+  const H = state.resizedHeight;
+  if (!W || !H) return null;
+
+  const settings = {
+    droplets: Math.max(1, Math.floor(options.droplets ?? 2500)),
+    maxSteps: Math.max(1, Math.floor(options.maxSteps ?? 120)),
+    radius: Math.max(0.5, options.radius ?? 1.5),
+    inertia: Math.max(0, Math.min(0.99, options.inertia ?? 0.1)),
+    capacity: Math.max(0.0001, options.capacity ?? 10),
+    depositionRate: Math.max(0, Math.min(1, options.depositionRate ?? 0.02)),
+    erosionRate: Math.max(0, Math.min(1, options.erosionRate ?? 0.9)),
+    evaporationRate: Math.max(0, Math.min(0.99, options.evaporationRate ?? 0.02)),
+    gravity: Math.max(0.0001, options.gravity ?? 20),
+    minSlope: Math.max(0, options.minSlope ?? 0.05),
+    seed: options.seed ?? 0
+  };
+
+  const heights = new Float32Array(state.heightmap);
+  const erosionAccum = new Float32Array(W * H);
+  const rand = createSeededRandom(settings.seed);
+
+  const minWater = 0.01;
+  const tau = Math.PI * 2;
+
+  for (let iter = 0; iter < settings.droplets; iter++) {
+    let x = rand() * (W - 1);
+    let y = rand() * (H - 1);
+    let dirX = 0;
+    let dirY = 0;
+    let speed = 1;
+    let water = 1;
+    let sediment = 0;
+
+    let sample = sampleHeightAndGradient(heights, W, H, x, y);
+    let currentHeight = sample.height;
+
+    for (let step = 0; step < settings.maxSteps; step++) {
+      dirX = dirX * settings.inertia - sample.gradientX * (1 - settings.inertia);
+      dirY = dirY * settings.inertia - sample.gradientY * (1 - settings.inertia);
+
+      const len = Math.hypot(dirX, dirY);
+      if (len === 0) {
+        const angle = rand() * tau;
+        dirX = Math.cos(angle);
+        dirY = Math.sin(angle);
+      } else {
+        dirX /= len;
+        dirY /= len;
+      }
+
+      const nx = x + dirX;
+      const ny = y + dirY;
+
+      if (nx < 0 || nx >= W - 1 || ny < 0 || ny >= H - 1) {
+        break;
+      }
+
+      const nextSample = sampleHeightAndGradient(heights, W, H, nx, ny);
+      const nextHeight = nextSample.height;
+      let deltaHeight = nextHeight - currentHeight;
+
+      if (deltaHeight > 0) {
+        const depositAmount = Math.min(deltaHeight, sediment);
+        if (depositAmount > 0) {
+          depositSedimentAt(heights, W, H, x, y, depositAmount);
+          sediment -= depositAmount;
+          deltaHeight -= depositAmount;
+        }
+        if (deltaHeight > 0.001) {
+          break;
+        }
+      }
+
+      const slope = Math.max(-deltaHeight, settings.minSlope);
+      const capacity = slope * speed * water * settings.capacity;
+
+      if (sediment > capacity) {
+        const depositAmount = (sediment - capacity) * settings.depositionRate;
+        if (depositAmount > 0) {
+          depositSedimentAt(heights, W, H, x, y, depositAmount);
+          sediment -= depositAmount;
+        }
+      } else {
+        const desiredErode = (capacity - sediment) * settings.erosionRate;
+        const erodeAmount = Math.min(desiredErode, -deltaHeight + 1e-3);
+        if (erodeAmount > 0) {
+          const removed = erodeSedimentAt(heights, erosionAccum, W, H, nx, ny, erodeAmount, settings.radius);
+          sediment += removed;
+        }
+      }
+
+      const dh = currentHeight - nextHeight;
+      speed = Math.sqrt(Math.max(0.0001, speed * speed + dh * settings.gravity));
+      water *= 1 - settings.evaporationRate;
+      if (water <= minWater) {
+        break;
+      }
+
+      x = nx;
+      y = ny;
+      sample = nextSample;
+      currentHeight = nextHeight;
+    }
+  }
+
+  let out = outputMask;
+  if (!out) {
+    if (!state.mask || state.mask.length !== W * H) {
+      state.mask = new Float32Array(W * H);
+    }
+    out = state.mask;
+  } else if (out.length !== W * H) {
+    out = new Float32Array(W * H);
+    if (outputMask === state.previewMask) {
+      state.previewMask = out;
+    }
+  }
+
+  let maxErosion = 0;
+  for (let i = 0; i < erosionAccum.length; i++) {
+    if (erosionAccum[i] > maxErosion) {
+      maxErosion = erosionAccum[i];
+    }
+  }
+
+  if (maxErosion <= 1e-6) {
+    out.fill(0);
+    return out;
+  }
+
+  const norm = 1 / maxErosion;
+  for (let i = 0; i < erosionAccum.length; i++) {
+    const value = Math.sqrt(erosionAccum[i] * norm);
+    out[i] = Math.max(0, Math.min(255, value * 255));
+  }
+  return out;
 }
 
 // Noise library - Perlin and Simplex noise implementation
@@ -1872,6 +2115,7 @@ function openMaskGeneratorPanel(type) {
     el.maskGeneratorTitle.textContent = 'Generate Slope Mask';
     el.slopeMaskPanel.classList.remove('hidden');
     el.noiseMaskPanel.classList.add('hidden');
+    if (el.erosionMaskPanel) el.erosionMaskPanel.classList.add('hidden');
     // Generate preview immediately with current/default values
     if (state.heightmap) {
       const min = parseInt(document.getElementById('slopeRangeMin')?.value || 60);
@@ -1917,12 +2161,22 @@ function openMaskGeneratorPanel(type) {
     el.maskGeneratorTitle.textContent = 'Generate Noise Mask';
     el.slopeMaskPanel.classList.add('hidden');
     el.noiseMaskPanel.classList.remove('hidden');
+    if (el.erosionMaskPanel) el.erosionMaskPanel.classList.add('hidden');
     // Update type-specific UI
     const noiseType = document.getElementById('noiseType')?.value || 'perlin';
     updateNoiseTypeSpecificUI(noiseType);
     // Generate preview immediately with current/default values (force update)
     if (state.heightmap) {
       updateNoisePreview(true);
+    }
+  } else if (type === 'erosion') {
+    el.maskGeneratorTitle.textContent = 'Generate Erosion Mask';
+    if (el.slopeMaskPanel) el.slopeMaskPanel.classList.add('hidden');
+    if (el.noiseMaskPanel) el.noiseMaskPanel.classList.add('hidden');
+    if (el.erosionMaskPanel) el.erosionMaskPanel.classList.remove('hidden');
+
+    if (state.heightmap) {
+      updateErosionPreview(true);
     }
   }
 }
@@ -2107,6 +2361,54 @@ function setupValueDisplays() {
   }
 }
 
+function setupErosionValueDisplays() {
+  const configs = [
+    { id: 'erosionDroplets', valueId: 'erosionDropletsValue', decimals: 0 },
+    { id: 'erosionMaxSteps', valueId: 'erosionMaxStepsValue', decimals: 0 },
+    { id: 'erosionRadius', valueId: 'erosionRadiusValue', decimals: 2 },
+    { id: 'erosionInertia', valueId: 'erosionInertiaValue', decimals: 2 },
+    { id: 'erosionCapacity', valueId: 'erosionCapacityValue', decimals: 0 },
+    { id: 'erosionDeposition', valueId: 'erosionDepositionValue', decimals: 2 },
+    { id: 'erosionErosionRate', valueId: 'erosionErosionRateValue', decimals: 2 },
+    { id: 'erosionEvaporation', valueId: 'erosionEvaporationValue', decimals: 2 },
+    { id: 'erosionGravity', valueId: 'erosionGravityValue', decimals: 0 },
+    { id: 'erosionMinSlope', valueId: 'erosionMinSlopeValue', decimals: 2 }
+  ];
+
+  configs.forEach(({ id, valueId, decimals }) => {
+    const inputEl = document.getElementById(id);
+    const valueEl = document.getElementById(valueId);
+    if (!inputEl || !valueEl) return;
+
+    const updateLabel = () => {
+      const numericValue = parseFloat(inputEl.value);
+      if (!Number.isFinite(numericValue)) return;
+      valueEl.textContent = numericValue.toFixed(decimals);
+    };
+
+    updateLabel();
+    inputEl.addEventListener('input', () => {
+      updateLabel();
+      updateErosionPreview();
+    });
+  });
+
+  const seedInput = document.getElementById('erosionSeed');
+  if (seedInput) {
+    seedInput.addEventListener('change', () => updateErosionPreview());
+  }
+
+  const modeSelect = document.getElementById('erosionMaskMode');
+  if (modeSelect) {
+    modeSelect.addEventListener('change', () => updateErosionPreview());
+  }
+
+  const invertToggle = document.getElementById('erosionMaskInvert');
+  if (invertToggle) {
+    invertToggle.addEventListener('change', () => updateErosionPreview());
+  }
+}
+
 function updateNoisePreview(force = false) {
   const livePreview = document.getElementById('maskLivePreview')?.checked;
   if (!force && (!livePreview || !state.previewMask)) return;
@@ -2173,6 +2475,75 @@ function updateNoisePreview(force = false) {
     }
   }
   
+  render3DPreview();
+}
+
+function readErosionControls() {
+  const readInt = (id, fallback) => {
+    const input = document.getElementById(id);
+    if (!input) return fallback;
+    const value = parseInt(input.value, 10);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  const readFloat = (id, fallback) => {
+    const input = document.getElementById(id);
+    if (!input) return fallback;
+    const value = parseFloat(input.value);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  return {
+    mode: document.getElementById('erosionMaskMode')?.value || 'add',
+    invert: document.getElementById('erosionMaskInvert')?.checked || false,
+    seed: readInt('erosionSeed', 0),
+    droplets: readInt('erosionDroplets', 1500),
+    maxSteps: readInt('erosionMaxSteps', 120),
+    radius: readFloat('erosionRadius', 1.5),
+    inertia: readFloat('erosionInertia', 0.1),
+    capacity: readFloat('erosionCapacity', 10),
+    depositionRate: readFloat('erosionDeposition', 0.02),
+    erosionRate: readFloat('erosionErosionRate', 0.9),
+    evaporationRate: readFloat('erosionEvaporation', 0.02),
+    gravity: readFloat('erosionGravity', 20),
+    minSlope: readFloat('erosionMinSlope', 0.05)
+  };
+}
+
+function updateErosionPreview(force = false) {
+  const livePreview = document.getElementById('maskLivePreview')?.checked;
+  if (!force && (!livePreview || !state.previewMask)) return;
+  if (!state.heightmap) return;
+
+  const settings = readErosionControls();
+  const { mode, invert, ...generatorOptions } = settings;
+  const W = state.resizedWidth;
+  const H = state.resizedHeight;
+  if (!W || !H) return;
+
+  let generatedMask = new Float32Array(W * H);
+  const erosionMask = generateErosionMask(generatorOptions, generatedMask);
+  if (!erosionMask) return;
+  generatedMask = erosionMask;
+
+  if (invert) {
+    for (let i = 0; i < generatedMask.length; i++) {
+      generatedMask[i] = 255 - generatedMask[i];
+    }
+  }
+
+  if (!state.previewMask || state.previewMask.length !== W * H) {
+    state.previewMask = new Float32Array(W * H);
+  }
+
+  const hasBaseMask = !!(state.mask && state.mask.length === W * H);
+  for (let i = 0; i < W * H; i++) {
+    const base = hasBaseMask ? state.mask[i] : 0;
+    if (mode === 'add') {
+      state.previewMask[i] = Math.min(255, base + generatedMask[i]);
+    } else {
+      state.previewMask[i] = Math.max(0, base - generatedMask[i]);
+    }
+  }
+
   render3DPreview();
 }
 
@@ -2415,11 +2786,13 @@ function setupNoiseTypeSpecificListeners() {
 
 if (el.genSlopeMask) el.genSlopeMask.addEventListener('click', () => openMaskGeneratorPanel('slope'));
 if (el.genNoiseMask) el.genNoiseMask.addEventListener('click', () => openMaskGeneratorPanel('noise'));
+if (el.genErosionMask) el.genErosionMask.addEventListener('click', () => openMaskGeneratorPanel('erosion'));
 if (el.closeMaskGenerator) el.closeMaskGenerator.addEventListener('click', closeMaskGeneratorPanel);
 
 // Apply buttons
 const applySlopeMask = document.getElementById('applySlopeMask');
 const applyNoiseMask = document.getElementById('applyNoiseMask');
+const applyErosionMask = document.getElementById('applyErosionMask');
 
 if (applySlopeMask) {
   applySlopeMask.addEventListener('click', () => {
@@ -2532,6 +2905,46 @@ if (applyNoiseMask) {
   });
 }
 
+if (applyErosionMask) {
+  applyErosionMask.addEventListener('click', () => {
+    if (!state.heightmap) return;
+    const settings = readErosionControls();
+    const { mode, invert, ...generatorOptions } = settings;
+    const W = state.resizedWidth;
+    const H = state.resizedHeight;
+    if (!W || !H) return;
+
+    if (!state.mask || state.mask.length !== W * H) {
+      state.mask = new Float32Array(W * H);
+    }
+
+    const scratch = new Float32Array(W * H);
+    const erosionMask = generateErosionMask(generatorOptions, scratch);
+    if (!erosionMask) return;
+    const maskData = erosionMask;
+
+    if (invert) {
+      for (let i = 0; i < maskData.length; i++) {
+        maskData[i] = 255 - maskData[i];
+      }
+    }
+
+    if (mode === 'add') {
+      for (let i = 0; i < W * H; i++) {
+        state.mask[i] = Math.min(255, state.mask[i] + maskData[i]);
+      }
+    } else {
+      for (let i = 0; i < W * H; i++) {
+        state.mask[i] = Math.max(0, state.mask[i] - maskData[i]);
+      }
+    }
+
+    saveMaskState();
+    render3DPreview();
+    closeMaskGeneratorPanel();
+  });
+}
+
 // Live preview for noise inputs
 const noiseTypeSelect = document.getElementById('noiseType');
 if (noiseTypeSelect) {
@@ -2568,6 +2981,7 @@ if (randomSeedBtn) {
 // Initialize sliders
 setupSlopeRangeSlider();
 setupValueDisplays();
+setupErosionValueDisplays();
 if (el.maskInput) el.maskInput.addEventListener('change', async (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
