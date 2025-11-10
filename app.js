@@ -11,8 +11,12 @@ const el = {
   maxHeight: document.getElementById('maxHeight'),
   materialPath: document.getElementById('materialPath'),
   dispPower: document.getElementById('dispPower'),
-  autoUpdate: document.getElementById('autoUpdate'),
   showGrid: document.getElementById('showGrid'),
+  // Skybox elements
+  enableSkybox: document.getElementById('enableSkybox'),
+  skyboxTopOffset: document.getElementById('skyboxTopOffset'),
+  showMaxBounds: document.getElementById('showMaxBounds'),
+  skyboxDimensions: document.getElementById('skyboxDimensions'),
   // Mask editor
   maskMode: null, // Removed checkbox, always enabled in Material tab
   showMask: null, // Removed checkbox, always enabled in Material tab
@@ -49,6 +53,60 @@ const el = {
   maskBlendCancel: document.getElementById('maskBlendCancel')
 };
 
+// ---------------------------------------------------------------------------
+// Cookies helpers for persisting custom material path/name
+// ---------------------------------------------------------------------------
+function setCookie(name, value, days) {
+  try {
+    const expires = days
+      ? '; expires=' + new Date(Date.now() + days * 864e5).toUTCString()
+      : '';
+    document.cookie = name + '=' + (value || '') + expires + '; path=/';
+  } catch (e) {
+    // If cookies are blocked, fail silently
+  }
+}
+
+function getCookie(name) {
+  const nameEq = name + '=';
+  const ca = document.cookie.split(';');
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i].trim();
+    if (c.indexOf(nameEq) === 0) return c.substring(nameEq.length, c.length);
+  }
+  return null;
+}
+
+function saveMaterialPathToCookie() {
+  if (!el.materialPath) return;
+  const pathValue = el.materialPath.value;
+  if (typeof pathValue === 'string') {
+    setCookie('dispgen_material_path', encodeURIComponent(pathValue), 365);
+  }
+}
+
+function loadMaterialPathFromCookie() {
+  if (!el.materialPath) return;
+  const raw = getCookie('dispgen_material_path');
+  if (raw) {
+    try {
+      el.materialPath.value = decodeURIComponent(raw);
+    } catch {
+      // Ignore decoding errors
+    }
+  }
+}
+
+// Initialize cookie-driven persistence on DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+  loadMaterialPathFromCookie();
+  if (el.materialPath) {
+    // Persist on user changes (commit/blur)
+    el.materialPath.addEventListener('change', saveMaterialPathToCookie);
+    el.materialPath.addEventListener('blur', saveMaterialPathToCookie);
+  }
+});
+
 // --------------------------- State ---------------------------
 const state = {
   originalImage: null,           // HTMLImageElement
@@ -64,7 +122,16 @@ const state = {
   maskHistory: [],                // Array of Float32Array snapshots for undo
   maskHistoryIndex: -1,          // Current position in history (-1 = no history)
   maxHistorySize: 50,            // Maximum number of undo states
-  pendingMaskImport: null        // { data: Float32Array, previousSnapshot: Float32Array }
+  pendingMaskImport: null,        // { data: Float32Array, previousSnapshot: Float32Array }
+  // Skybox state
+  skybox: {
+    enabled: false,
+    topOffset: 2048,
+    maxMapSize: 32766,           // 32768 - 2 (1 unit buffer each side)
+    maxSkyboxSize: 32768,
+    maxBoundsVisible: false,
+    skyboxBoundsVisible: false
+  }
 };
 
 // ------------------------ Helpers ---------------------------
@@ -100,6 +167,37 @@ function saveMaskState() {
   if (!state.mask) return;
   pushMaskHistorySnapshot(new Float32Array(state.mask));
   updateUndoRedoButtons();
+}
+
+// Clamp dimensional inputs to the inner max (32766 units) to leave 1-unit skybox margins
+function clampMapDimensionsIfNeeded() {
+  let tileSize = parseInt(el.tileSize.value, 10);
+  if (isNaN(tileSize) || tileSize <= 0) return false;
+  const maxInner = state.skybox?.maxMapSize ?? 32766;
+  let changed = false;
+  if (tileSize > maxInner) {
+    tileSize = maxInner;
+    el.tileSize.value = maxInner;
+    changed = true;
+  }
+  const tilesX = parseInt(el.tilesX.value, 10);
+  const tilesY = parseInt(el.tilesY.value, 10);
+  const maxTiles = Math.max(1, Math.floor(maxInner / tileSize));
+
+  if (!isNaN(tilesX) && tilesX > maxTiles) {
+    el.tilesX.value = maxTiles;
+    changed = true;
+  }
+  if (!isNaN(tilesY) && tilesY > maxTiles) {
+    el.tilesY.value = maxTiles;
+    changed = true;
+  }
+  const maxHeight = parseInt(el.maxHeight.value, 10);
+  if (!isNaN(maxHeight) && maxHeight > maxInner) {
+    el.maxHeight.value = maxInner;
+    changed = true;
+  }
+  return changed;
 }
 
 function pushMaskHistorySnapshot(snapshot) {
@@ -1242,7 +1340,12 @@ function applyPendingMaskImport(blendMode) {
 
 function ensureThree() {
   if (state.three) return state.three;
-  const renderer = new THREE.WebGLRenderer({ canvas: el.canvas, antialias: true, alpha: true });
+  const renderer = new THREE.WebGLRenderer({
+    canvas: el.canvas,
+    antialias: true,
+    alpha: true,
+    logarithmicDepthBuffer: true
+  });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio to reduce jittering
   const initW = el.viewer?.clientWidth || el.canvas.parentElement.clientWidth || 1000;
   const initH = el.viewer?.clientHeight || el.canvas.parentElement.clientHeight || 700;
@@ -1255,7 +1358,7 @@ function ensureThree() {
   renderer.setClearColor(background, 0.8);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(background.getHex(), 2000, 48000);
+  scene.fog = new THREE.Fog(background.getHex(), 2000, 128000);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100000); // Reduced far plane for better precision
   camera.position.set(0, -1000, 800);
@@ -1306,7 +1409,57 @@ function ensureThree() {
   // Cache for brush indicator updates
   let brushIndicatorUpdatePending = false;
 
-  state.three = { renderer, scene, camera, controls, mesh: null, gridLines: [], renderLoopActive: false, raycaster, mouse, brushCircle };
+  state.three = {
+    renderer,
+    scene,
+    camera,
+    controls,
+    mesh: null,
+    gridLines: [],
+    renderLoopActive: false,
+    raycaster,
+    mouse,
+    brushCircle,
+    maxBoundsLines: null,
+    skyboxLines: null
+  };
+
+  // Optional: create a max-bounds visualization (wireframe cube) around the displacement area
+  if (!state.three.maxBoundsLines) {
+    const boundSize = state.skybox?.maxMapSize ?? 32766;
+    const maxBoundsGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(boundSize, boundSize, boundSize));
+    const maxBoundsMaterial = new THREE.LineBasicMaterial({
+      color: 0x4043A3,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false,
+      fog: false
+    });
+    const maxBoundsLines = new THREE.LineSegments(maxBoundsGeometry, maxBoundsMaterial);
+    maxBoundsLines.visible = !!el.showMaxBounds?.checked;
+    maxBoundsLines.renderOrder = 3;
+    scene.add(maxBoundsLines);
+    state.three.maxBoundsLines = maxBoundsLines;
+    state.skybox.maxBoundsVisible = maxBoundsLines.visible;
+  }
+
+  if (!state.three.skyboxLines) {
+    const initialGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+    const skyboxMaterial = new THREE.LineBasicMaterial({
+      color: 0x4043A3,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false,
+      fog: false
+    });
+    const skyboxLines = new THREE.LineSegments(initialGeometry, skyboxMaterial);
+    skyboxLines.visible = false;
+    skyboxLines.renderOrder = 4;
+    scene.add(skyboxLines);
+    state.three.skyboxLines = skyboxLines;
+  }
 
   // Resize handling
   function onResize() {
@@ -1442,6 +1595,89 @@ function startRenderLoop() {
   });
 }
 
+// Visualization helpers for Skybox/max-bounds
+function updateMaxBoundsVisualization() {
+  const show = !!el.showMaxBounds?.checked;
+  if (show) ensureThree();
+  const maxBoundsLines = state.three?.maxBoundsLines;
+  if (maxBoundsLines) {
+    maxBoundsLines.visible = show;
+    state.skybox.maxBoundsVisible = show;
+  }
+}
+
+function updateSkyboxInfoDisplay() {
+  const maxInner = state.skybox?.maxMapSize ?? 32766;
+  const tilesX = parseInt(el.tilesX?.value, 10) || 0;
+  const tilesY = parseInt(el.tilesY?.value, 10) || 0;
+  const tileSize = parseInt(el.tileSize?.value, 10) || 0;
+  const maxHeight = parseInt(el.maxHeight?.value, 10) || 0;
+  const width = Math.min(maxInner, tilesX * tileSize);
+  const depth = Math.min(maxInner, tilesY * tileSize);
+  const topOffset = state.skybox.topOffset ?? 0;
+  const skyboxHeight = maxHeight + topOffset;
+  if (el.skyboxDimensions) {
+    el.skyboxDimensions.textContent = `Current Map Size: ${width} x ${depth} units
+Max Inner Limit: ${maxInner} x ${maxInner} units
+Skybox Top Offset: ${topOffset} units
+Skybox Height: ${skyboxHeight} units`;
+  }
+}
+
+function updateSkyboxVisualization() {
+  const enabled = !!el.enableSkybox?.checked;
+  state.skybox.enabled = enabled;
+  const three = ensureThree();
+  if (!three || !three.skyboxLines) return;
+
+  if (!enabled) {
+    three.skyboxLines.visible = false;
+    state.skybox.skyboxBoundsVisible = false;
+    return;
+  }
+
+  const tilesX = parseInt(el.tilesX?.value, 10) || 0;
+  const tilesY = parseInt(el.tilesY?.value, 10) || 0;
+  const tileSize = parseInt(el.tileSize?.value, 10) || 0;
+  const maxHeight = parseInt(el.maxHeight?.value, 10) || 0;
+  const topOffset = state.skybox.topOffset ?? 0;
+
+  const maxInner = state.skybox.maxMapSize ?? 32766;
+  const innerWidth = Math.min(maxInner, tilesX * tileSize);
+  const innerDepth = Math.min(maxInner, tilesY * tileSize);
+  const innerHeight = Math.min(maxInner, maxHeight);
+
+  const width = Math.max(2, Math.min(state.skybox.maxSkyboxSize ?? (maxInner + 2), innerWidth + 2));
+  const depth = Math.max(2, Math.min(state.skybox.maxSkyboxSize ?? (maxInner + 2), innerDepth + 2));
+  const height = Math.max(2, innerHeight + topOffset + 2);
+
+  const boxGeometry = new THREE.BoxGeometry(width, depth, height);
+  boxGeometry.translate(0, 0, height / 2);
+  const edges = new THREE.EdgesGeometry(boxGeometry);
+
+  if (three.skyboxLines.geometry) {
+    three.skyboxLines.geometry.dispose();
+  }
+  three.skyboxLines.geometry = edges;
+  three.skyboxLines.visible = true;
+  state.skybox.skyboxBoundsVisible = true;
+}
+
+// Initialize skybox-related state and UI sync
+if (el.showMaxBounds) el.showMaxBounds.addEventListener('change', updateMaxBoundsVisualization);
+if (el.enableSkybox) el.enableSkybox.addEventListener('change', () => {
+  updateSkyboxVisualization();
+  updateSkyboxInfoDisplay();
+});
+if (el.skyboxTopOffset) el.skyboxTopOffset.addEventListener('input', () => {
+  const top = parseInt(el.skyboxTopOffset.value, 10);
+  if (!Number.isNaN(top)) {
+    state.skybox.topOffset = top;
+  }
+  updateSkyboxInfoDisplay();
+  updateSkyboxVisualization();
+});
+
 // Draw and mirror image horizontally, then resize to tiles*8 using canvas
 async function loadAndPrepareImage(file) {
   const url = URL.createObjectURL(file);
@@ -1461,6 +1697,7 @@ async function loadAndPrepareImage(file) {
 
 function resizeHeightmapImage() {
   if (!state.originalImage) return;
+  clampMapDimensionsIfNeeded();
   const tilesX = parseInt(el.tilesX.value, 10);
   const tilesY = parseInt(el.tilesY.value, 10);
   const targetW = tilesX * 8;
@@ -1544,11 +1781,18 @@ function render3DPreview() {
   const powerLevel = parseInt(el.dispPower.value, 10);
   const resolution = 2 ** powerLevel;
 
-  const maxDimension = Math.max(tilesX * tileSize, tilesY * tileSize, heightScale);
-  if (scene?.fog) {
-    const desiredFar = maxDimension * 3;
-    scene.fog.far = Math.max(scene.fog.near + 100, desiredFar);
+  const mapWidth = tilesX * tileSize;
+  const mapDepth = tilesY * tileSize;
+  const mapHeight = Math.max(1, heightScale);
+  const maxDimension = Math.max(mapWidth, mapDepth, mapHeight, 1);
+  const desiredFar = Math.max(5000, maxDimension * 6);
+  const desiredNear = Math.max(1, desiredFar / 4000);
+  if (Math.abs(camera.near - desiredNear) > 0.01 || Math.abs(camera.far - desiredFar) > 5) {
+    camera.near = desiredNear;
+    camera.far = desiredFar;
+    camera.updateProjectionMatrix();
   }
+  controls.maxDistance = desiredFar * 0.6;
 
   const previewSignature = `${tilesX}_${tilesY}_${tileSize}_${heightScale}_${powerLevel}`;
   const shouldPreserveCamera = !!state.three?.mesh;
@@ -1673,7 +1917,10 @@ function render3DPreview() {
     roughness: 0.7,
     envMapIntensity: 0.6,
     emissive: new THREE.Color(0x0f172a),
-    emissiveIntensity: 0.1
+    emissiveIntensity: 0.1,
+    transparent: false,
+    opacity: 1,
+    side: THREE.DoubleSide
   });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.renderOrder = 0; // Render before lines
@@ -1683,11 +1930,11 @@ function render3DPreview() {
   // Grid lines
   if (el.showGrid.checked) {
     const lineMat = new THREE.LineBasicMaterial({ 
-      color: new THREE.Color(0x1f2937),
-      depthTest: false,
-      depthWrite: false
+      color: new THREE.Color(0x4043A3),
+      depthTest: true,
+      depthWrite: true
     });
-    const lineOffset = 5.0; // Offset to prevent z-fighting
+    const lineOffset = 5.0; // Align with terrain (no offset)
     // vertical tile boundaries
     for (let t = 1; t < tilesX; t++) {
       const xCoordIdx = t * resolution;
@@ -1775,7 +2022,7 @@ class Cordon extends VmfClass { constructor(){ super('cordon'); this.auto = ['mi
 class ValveMap extends VmfClass { constructor(){ super(false); this.world = new World(); this.cameras = new Cameras(); this.cordon = new Cordon(); this.children.push(this.world); this.children.push(this.cameras); this.children.push(this.cordon); } writeString(){ return this.repr(); } }
 
 class Solid extends VmfClass { constructor(){ super('solid'); this.properties['id'] = globalIds.solid++; } }
-class Side extends VmfClass { constructor(plane = new Plane(), material = 'BRICK/BRICKFLOOR001A'){ super('side'); this.plane = plane; this.material = material; this.rotation = 0; this.lightmapscale = 16; this.smoothing_groups = 0; this.uaxis = new Axis(); this.vaxis = new Axis(); this.auto = ['plane','material','uaxis','vaxis','rotation','lightmapscale','smoothing_groups']; this.properties['id'] = globalIds.side++; } }
+class Side extends VmfClass { constructor(plane = new Plane(), material = 'TOOLS/TOOLSNODRAW'){ super('side'); this.plane = plane; this.material = material; this.rotation = 0; this.lightmapscale = 16; this.smoothing_groups = 0; this.uaxis = new Axis(); this.vaxis = new Axis(); this.auto = ['plane','material','uaxis','vaxis','rotation','lightmapscale','smoothing_groups']; this.properties['id'] = globalIds.side++; } }
 
 class Normals extends VmfClass { constructor(power, values){ super('normals'); for (let i=0;i<2**power+1;i++){ let row = ''; for (const v of values[i]) row += `${v.x} ${v.y} ${v.z} `; this.properties[`row${i}`] = row.trimEnd(); } } }
 class Distances extends VmfClass { constructor(power, values){ super('distances'); for (let i=0;i<2**power+1;i++){ this.properties[`row${i}`] = values[i].join(' '); } } }
@@ -1786,8 +2033,11 @@ class TriangleTags extends VmfClass { constructor(power){ super('triangle_tags')
 class AllowedVerts extends VmfClass { constructor(power){ super('allowed_verts'); } }
 class DispInfo extends VmfClass { constructor(power, normals, distances, alphas){ super('dispinfo'); this.power = power; this.startposition = '[0 0 0]'; this.elevation = 0; this.subdiv = 0; this.auto = ['power','startposition','elevation','subdiv']; this.children.push(new Normals(power, normals)); this.children.push(new Distances(power, distances)); this.children.push(new Offsets(power)); this.children.push(new OffsetNormals(power)); this.children.push(new Alphas(power, alphas)); this.children.push(new TriangleTags(power)); this.children.push(new AllowedVerts(power)); } }
 
+const SKYBOX_MATERIAL = 'TOOLS/TOOLSSKYBOX';
+const NODRAW_MATERIAL = 'TOOLS/TOOLSNODRAW';
+
 class Block {
-  constructor(origin = new Vertex(), dimensions = [64,64,64], material = 'BRICK/BRICKFLOOR001A'){
+  constructor(origin = new Vertex(), dimensions = [64,64,64], material = 'TOOLS/TOOLSNODRAW'){
     this.origin = origin; // center
     this.dimensions = dimensions; // [w,l,h]
     this.brush = new Solid();
@@ -1812,6 +2062,81 @@ class Block {
   top(){ return this.brush.children[0]; }
   bottom(){ return this.brush.children[1]; }
   repr(tabLevel=-1){ return this.brush.repr(tabLevel); }
+}
+
+function setSkyboxSides(block, interiorIndices = []) {
+  const interior = new Set(interiorIndices);
+  for (let i = 0; i < block.brush.children.length; i++) {
+    block.brush.children[i].material = interior.has(i) ? SKYBOX_MATERIAL : NODRAW_MATERIAL;
+  }
+}
+
+function addSkyboxBrushes(map, width, depth, maxHeight, topOffset = 0) {
+  const wallThickness = 1;
+  const buffer = 0;
+
+  const halfInnerWidth = width / 2 + buffer;
+  const halfInnerDepth = depth / 2 + buffer;
+  const innerWidth = halfInnerWidth * 2;
+  const innerDepth = halfInnerDepth * 2;
+
+  const wallWidth = innerWidth + wallThickness * 2;
+  const wallDepth = innerDepth + wallThickness * 2;
+
+  const floorThickness = wallThickness;
+  const floorBottom = -(floorThickness + 1);
+  const innerTop = maxHeight + topOffset;
+  const ceilingThickness = wallThickness;
+  const wallHeight = innerTop - floorBottom;
+  const wallCenterZ = floorBottom + wallHeight / 2;
+
+  const floorBlock = new Block(
+    new Vertex(0, 0, floorBottom + floorThickness / 2),
+    [wallWidth, wallDepth, floorThickness],
+    NODRAW_MATERIAL
+  );
+  setSkyboxSides(floorBlock, [0]);
+  map.world.children.push(floorBlock);
+
+  const ceilingBlock = new Block(
+    new Vertex(0, 0, innerTop + ceilingThickness / 2),
+    [wallWidth, wallDepth, ceilingThickness],
+    NODRAW_MATERIAL
+  );
+  setSkyboxSides(ceilingBlock, [1]);
+  map.world.children.push(ceilingBlock);
+
+  const northWall = new Block(
+    new Vertex(0, halfInnerDepth + wallThickness / 2, wallCenterZ),
+    [wallWidth, wallThickness, wallHeight],
+    NODRAW_MATERIAL
+  );
+  setSkyboxSides(northWall, [5]);
+  map.world.children.push(northWall);
+
+  const southWall = new Block(
+    new Vertex(0, -(halfInnerDepth + wallThickness / 2), wallCenterZ),
+    [wallWidth, wallThickness, wallHeight],
+    NODRAW_MATERIAL
+  );
+  setSkyboxSides(southWall, [4]);
+  map.world.children.push(southWall);
+
+  const eastWall = new Block(
+    new Vertex(halfInnerWidth + wallThickness / 2, 0, wallCenterZ),
+    [wallThickness, wallDepth, wallHeight],
+    NODRAW_MATERIAL
+  );
+  setSkyboxSides(eastWall, [2]);
+  map.world.children.push(eastWall);
+
+  const westWall = new Block(
+    new Vertex(-(halfInnerWidth + wallThickness / 2), 0, wallCenterZ),
+    [wallThickness, wallDepth, wallHeight],
+    NODRAW_MATERIAL
+  );
+  setSkyboxSides(westWall, [3]);
+  map.world.children.push(westWall);
 }
 
 function generateVMF() {
@@ -1860,7 +2185,7 @@ function generateVMF() {
     (dispAlphasRows || (dispAlphasRows = [])).push(alphaVals);
       }
 
-      const block = new Block(new Vertex(offsetX, offsetY, 0), [tileSize, tileSize, 16], material);
+      const block = new Block(new Vertex(offsetX, offsetY, -0.5), [tileSize, tileSize, 1], material);
       const disp = new DispInfo(powerLevel, vertexNormals, distances, dispAlphasRows || []);
       const halfTile = tileSize / 2;
       const baseZ = block.origin.z + (block.dimensions[2] / 2);
@@ -1871,19 +2196,29 @@ function generateVMF() {
     }
   }
 
+  const skyboxEnabled = !!el.enableSkybox?.checked;
+  if (skyboxEnabled) {
+    const width = tilesX * tileSize;
+    const depth = tilesY * tileSize;
+    const topOffset = parseInt(el.skyboxTopOffset?.value, 10);
+    const offsetValue = Number.isFinite(topOffset) ? topOffset : (state.skybox?.topOffset ?? 0);
+    addSkyboxBrushes(map, width, depth, heightScale, offsetValue);
+  }
+
   return map.writeString();
 }
 
 // --------------------------- Events ---------------------------
 function maybeAutoPreview() {
   if (!state.heightmap) return;
-  if (el.autoUpdate.checked) render3DPreview();
+  render3DPreview();
 }
 
+// Autoupdate toggle removed; previews update automatically
+
+// No-op shim to satisfy existing call sites after removing the autoupdate UI
 function syncPreviewButtonVisibility() {
-  if (!el.previewBtn) return;
-  const hidePreview = !!el.autoUpdate?.checked;
-  el.previewBtn.classList.toggle('hidden', hidePreview);
+  // Intentionally left blank
 }
 
 el.heightmapInput.addEventListener('change', async (e) => {
@@ -1897,6 +2232,8 @@ el.heightmapInput.addEventListener('change', async (e) => {
       if (btn) btn.disabled = false;
     });
     render3DPreview();
+    updateSkyboxInfoDisplay();
+    updateSkyboxVisualization();
   } catch (err) {
     alert('Failed to load heightmap: ' + err);
   }
@@ -1904,9 +2241,12 @@ el.heightmapInput.addEventListener('change', async (e) => {
 
 for (const id of ['tilesX','tilesY','tileSize','maxHeight']) {
   el[id].addEventListener('input', () => {
+    clampMapDimensionsIfNeeded();
     resizeHeightmapImage();
     updateDimensionsLabel();
     maybeAutoPreview();
+    updateSkyboxInfoDisplay();
+    updateSkyboxVisualization();
   });
 }
 el.materialPath.addEventListener('input', () => { /* no-op for preview */ });
@@ -1946,17 +2286,19 @@ generateBtns.forEach(btn => {
 
 // Initial label
 updateDimensionsLabel();
-syncPreviewButtonVisibility();
 
 // ------------------------ Tab Switching ------------------------
 const tabTerrain = document.getElementById('tabTerrain');
 const tabMaterial = document.getElementById('tabMaterial');
+const tabSkybox = document.getElementById('tabSkybox');
 const contentTerrain = document.getElementById('tabContentTerrain');
 const contentMaterial = document.getElementById('tabContentMaterial');
+const contentSkybox = document.getElementById('tabContentSkybox');
 
 // Helper function to check if Material/Mask tab is active
 function isMaterialTabActive() {
-  return contentMaterial && !contentMaterial.classList.contains('hidden');
+  const matContent = document.getElementById('tabContentMaterial');
+  return !!(matContent && !matContent.classList.contains('hidden'));
 }
 
 // Helper function to check if mask mode is enabled (always true in Material tab)
@@ -1975,15 +2317,38 @@ function switchTab(tabName) {
     tabTerrain.classList.remove('text-slate-400', 'border-transparent');
     tabMaterial.classList.remove('active', 'text-slate-300', 'border-indigo-500');
     tabMaterial.classList.add('text-slate-400', 'border-transparent');
+    if (tabSkybox) {
+      tabSkybox.classList.remove('active', 'text-slate-300', 'border-indigo-500');
+      tabSkybox.classList.add('text-slate-400', 'border-transparent');
+    }
     contentTerrain.classList.remove('hidden');
     contentMaterial.classList.add('hidden');
+    if (contentSkybox) contentSkybox.classList.add('hidden');
+    if (state.heightmap) render3DPreview();
+  } else if (tabName === 'skybox') {
+    tabSkybox.classList.add('active', 'text-slate-300', 'border-indigo-500');
+    tabSkybox.classList.remove('text-slate-400', 'border-transparent');
+    tabTerrain.classList.remove('active', 'text-slate-300', 'border-indigo-500');
+    tabTerrain.classList.add('text-slate-400', 'border-transparent');
+    tabMaterial.classList.remove('active', 'text-slate-300', 'border-indigo-500');
+    tabMaterial.classList.add('text-slate-400', 'border-transparent');
+    contentSkybox.classList.remove('hidden');
+    contentTerrain.classList.add('hidden');
+    contentMaterial.classList.add('hidden');
+    if (state.heightmap) render3DPreview();
   } else {
+    // material tab
     tabMaterial.classList.add('active', 'text-slate-300', 'border-indigo-500');
     tabMaterial.classList.remove('text-slate-400', 'border-transparent');
     tabTerrain.classList.remove('active', 'text-slate-300', 'border-indigo-500');
     tabTerrain.classList.add('text-slate-400', 'border-transparent');
+    if (tabSkybox) {
+      tabSkybox.classList.remove('active', 'text-slate-300', 'border-indigo-500');
+      tabSkybox.classList.add('text-slate-400', 'border-transparent');
+    }
     contentMaterial.classList.remove('hidden');
     contentTerrain.classList.add('hidden');
+    if (contentSkybox) contentSkybox.classList.add('hidden');
     // Re-render to show mask overlay when switching to Material tab
     if (state.heightmap) {
       render3DPreview();
@@ -1994,6 +2359,9 @@ function switchTab(tabName) {
 if (tabTerrain && tabMaterial) {
   tabTerrain.addEventListener('click', () => switchTab('terrain'));
   tabMaterial.addEventListener('click', () => switchTab('material'));
+}
+if (tabSkybox) {
+  tabSkybox.addEventListener('click', () => switchTab('skybox'));
 }
 
 // ------------------------ Number Input Counter ------------------------
@@ -2032,6 +2400,7 @@ setupInputCounter('tilesX');
 setupInputCounter('tilesY');
 setupInputCounter('tileSize');
 setupInputCounter('maxHeight');
+setupInputCounter('skyboxTopOffset');
 
 // ------------------------ Mask Events ------------------------
 function updateBrushModeButtons() {
@@ -3195,4 +3564,9 @@ updateUndoRedoButtons();
 
 // Initialize brush mode buttons
 updateBrushModeButtons();
+
+// Initialize skybox UI state visuals on load
+updateSkyboxInfoDisplay();
+updateMaxBoundsVisualization();
+updateSkyboxVisualization();
 

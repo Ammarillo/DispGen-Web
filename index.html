@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DispGen Reborn (Web)</title>
+    <title>DispGen Reborn</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -12,7 +12,7 @@
       <aside class="w-full border-r border-slate-800 bg-slate-950/80 px-6 py-8 lg:w-96">
         <div class="space-y-6">
           <header class="space-y-2">
-            <h1 class="text-2xl font-semibold tracking-tight text-white">DispGen Web</h1>
+            <h1 class="text-2xl font-semibold tracking-tight text-white">DispGen Reborn</h1>
             <p class="text-sm text-slate-400">Heightmap → VMF with live preview</p>
           </header>
 
@@ -23,6 +23,9 @@
             </button>
             <button id="tabMaterial" class="tab-button px-4 py-2 text-sm font-medium text-slate-400 border-b-2 border-transparent hover:text-slate-300 transition" data-tab="material">
               Material/Mask
+            </button>
+            <button id="tabSkybox" class="tab-button px-4 py-2 text-sm font-medium text-slate-400 border-b-2 border-transparent hover:text-slate-300 transition" data-tab="skybox">
+              Skybox
             </button>
           </div>
 
@@ -118,18 +121,18 @@
               </div>
             </section>
 
-            <section class="space-y-3">
-              <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
-                <span>Auto Update Preview</span>
+            <!-- Auto Update Preview removed: always-on behavior is enforced in code -->
+            <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
+                <span>Show Tile Grid</span>
                 <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
-                  <input id="autoUpdate" type="checkbox" checked class="sr-only peer" />
+                  <input id="showGrid" type="checkbox" class="sr-only peer" />
                   <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
                 </div>
               </label>
               <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
-                <span>Show Tile Grid</span>
+                <span>Show Max Bounds</span>
                 <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
-                  <input id="showGrid" type="checkbox" class="sr-only peer" />
+                  <input id="showMaxBounds" type="checkbox" class="sr-only peer" />
                   <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
                 </div>
               </label>
@@ -155,7 +158,7 @@
             <section class="space-y-3">
               <div>
                 <label class="text-xs uppercase tracking-wide text-slate-400">Material Path</label>
-                <input id="materialPath" type="text" value="dev/dev_blendmeasure" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none" />
+                <input id="materialPath" type="text" value="dev/dev_blendmeasure" placeholder="dev/dev_blendmeasure" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none" />
               </div>
             </section>
 
@@ -231,6 +234,51 @@
               <button id="clearMask" class="w-full rounded-lg border border-rose-700 bg-rose-900/30 px-3 py-2 text-sm text-rose-200 hover:bg-rose-900/40">Clear Mask</button>
             </section>
             
+            <div class="space-y-3">
+              <button class="generate-vmf-btn w-full rounded-lg border border-indigo-500/60 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 shadow-sm transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500" disabled>
+                Generate VMF
+              </button>
+            </div>
+          </div>
+
+          <!-- Skybox Tab -->
+          <div id="tabContentSkybox" class="tab-content hidden space-y-6">
+            <section class="space-y-3">
+              <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
+                <span>Enable Skybox</span>
+                <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+                  <input id="enableSkybox" type="checkbox" class="sr-only peer" />
+                  <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+                </div>
+              </label>
+            </section>
+
+            <section class="space-y-3">
+              <div>
+                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Top Offset (units)</label>
+                <div class="relative flex items-center max-w-full">
+                  <button type="button" data-input-counter-decrement="skyboxTopOffset" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                    </svg>
+                  </button>
+                  <input type="number" id="skyboxTopOffset" min="0" max="10000" value="2048" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                  <button type="button" data-input-counter-increment="skyboxTopOffset" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs text-slate-300">
+              <h2 class="text-sm font-semibold text-slate-200">Skybox Bounds</h2>
+              <pre id="skyboxDimensions" class="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-slate-400">Max Map Size: 32766 x 32766 units
+Skybox Space: 1 unit buffer on all sides
+Total Skybox: 32768 x 32768 units</pre>
+            </section>
+
             <div class="space-y-3">
               <button class="generate-vmf-btn w-full rounded-lg border border-indigo-500/60 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 shadow-sm transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500" disabled>
                 Generate VMF
