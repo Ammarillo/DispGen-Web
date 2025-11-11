@@ -7,9 +7,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css" />
   </head>
-  <body class="bg-slate-950 text-slate-100 min-h-screen">
-    <div class="flex min-h-screen flex-col lg:flex-row">
-      <aside class="w-full border-r border-slate-800 bg-slate-950/80 px-6 py-8 lg:w-96">
+  <body class="bg-slate-950 text-slate-100 min-h-screen lg:h-screen lg:overflow-hidden">
+    <div class="flex min-h-screen flex-col lg:h-full lg:flex-row">
+      <aside class="w-full border-r border-slate-800 bg-slate-950/80 px-6 py-8 lg:w-96 lg:overflow-y-auto">
         <div class="space-y-6">
           <header class="space-y-2">
             <h1 class="text-2xl font-semibold tracking-tight text-white">DispGen Web</h1>
@@ -22,7 +22,7 @@
               Terrain
             </button>
             <button id="tabMaterial" class="tab-button px-4 py-2 text-sm font-medium text-slate-400 border-b-2 border-transparent hover:text-slate-300 transition" data-tab="material">
-              Material/Mask
+              Material
             </button>
             <button id="tabSkybox" class="tab-button px-4 py-2 text-sm font-medium text-slate-400 border-b-2 border-transparent hover:text-slate-300 transition" data-tab="skybox">
               Skybox
@@ -181,7 +181,8 @@
               <div class="grid grid-cols-2 gap-3">
                 <button id="genSlopeMask" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Generate Slope</button>
                 <button id="genNoiseMask" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Generate Noise</button>
-                <button id="genErosionMask" class="col-span-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Generate Erosion</button>
+                <button id="genHeightMask" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Generate Height</button>
+                <button id="genErosionMask" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Generate Erosion</button>
               </div>
               <label for="maskInput" class="block text-xs uppercase tracking-wide text-slate-400">
                 Import Mask
@@ -439,6 +440,75 @@ Total Skybox: 32768 x 32768 units</pre>
             </div>
           </div>
           <button id="applyNoiseMask" class="w-full rounded-lg border border-indigo-500 bg-indigo-500/20 px-4 py-2 text-sm font-medium text-indigo-200 hover:bg-indigo-500/30 transition">Apply Noise Mask</button>
+        </div>
+
+        <!-- Height Mask Panel -->
+        <div id="heightMaskPanel" class="hidden space-y-4">
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Mode</label>
+            <select id="heightMaskMode" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+              <option value="add">Add</option>
+              <option value="subtract">Subtract</option>
+            </select>
+          </div>
+          <label class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer">
+            <span>Invert Mask</span>
+            <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+              <input id="heightMaskInvert" type="checkbox" class="sr-only peer" />
+              <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+            </div>
+          </label>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <label class="text-xs uppercase tracking-wide text-slate-400">Gradient Editor</label>
+              <span class="text-[11px] uppercase tracking-wide text-slate-500">Mask 0 → 1</span>
+            </div>
+            <div class="relative h-16 overflow-hidden rounded-lg border border-slate-800 bg-slate-900/60">
+              <canvas id="heightGradientCanvas" width="256" height="64" class="h-full w-full"></canvas>
+            </div>
+            <div class="flex gap-2">
+              <button id="heightGradientAddStop" class="flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 transition hover:border-indigo-500 hover:text-white">Add Stop</button>
+              <button id="heightGradientReset" class="flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 transition hover:border-rose-500 hover:text-rose-200">Reset</button>
+            </div>
+            <div id="heightGradientSelection" class="space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+              <div class="flex items-center justify-between text-xs uppercase tracking-wide text-slate-400">
+                <span>Selected Stop</span>
+                <span id="heightSelectedStopInfo" class="text-[11px] text-slate-500">None</span>
+              </div>
+              <div>
+                <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Mask Value</label>
+                <div class="relative h-2">
+                  <div class="absolute h-2 w-full bg-slate-800 rounded-full top-1/2 -translate-y-1/2"></div>
+                  <input type="range" id="heightGradientValue" min="0" max="100" value="0" step="0.1" class="absolute top-0 w-full h-2 z-10">
+                </div>
+                <div class="flex justify-between mt-2 text-xs text-slate-400">
+                  <span>0</span>
+                  <span id="heightGradientValueDisplay">0.00</span>
+                  <span>1</span>
+                </div>
+              </div>
+              <div class="space-y-2 border-t border-slate-800 pt-3">
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Presets</label>
+                  <div class="flex gap-2">
+                    <select id="heightGradientPresetSelect" class="flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+                      <option value="">No presets saved</option>
+                    </select>
+                    <button id="heightGradientLoadPreset" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 transition hover:border-indigo-500 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed" disabled>Load</button>
+                    <button id="heightGradientDeletePreset" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-rose-200 transition hover:border-rose-500 hover:text-rose-100 disabled:opacity-40 disabled:cursor-not-allowed" disabled>Delete</button>
+                  </div>
+                </div>
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400 mb-2 block">Save Preset</label>
+                  <div class="flex gap-2">
+                    <input id="heightGradientPresetName" type="text" placeholder="Preset name" class="flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none" />
+                    <button id="heightGradientSavePreset" class="rounded-lg border border-indigo-500/70 bg-indigo-500/10 px-3 py-2 text-sm text-indigo-200 transition hover:bg-indigo-500/20">Save</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button id="applyHeightMask" class="w-full rounded-lg border border-indigo-500 bg-indigo-500/20 px-4 py-2 text-sm font-medium text-indigo-200 hover:bg-indigo-500/30 transition">Apply Height Mask</button>
         </div>
 
         <!-- Erosion Mask Panel -->

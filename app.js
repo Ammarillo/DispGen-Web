@@ -22,6 +22,7 @@ const el = {
   showMask: null, // Removed checkbox, always enabled in Material tab
   genSlopeMask: document.getElementById('genSlopeMask'),
   genNoiseMask: document.getElementById('genNoiseMask'),
+  genHeightMask: document.getElementById('genHeightMask'),
   genErosionMask: document.getElementById('genErosionMask'),
   maskInput: document.getElementById('maskInput'),
   brushSize: document.getElementById('brushSize'),
@@ -40,7 +41,22 @@ const el = {
   closeMaskGenerator: document.getElementById('closeMaskGenerator'),
   slopeMaskPanel: document.getElementById('slopeMaskPanel'),
   noiseMaskPanel: document.getElementById('noiseMaskPanel'),
+  heightMaskPanel: document.getElementById('heightMaskPanel'),
   erosionMaskPanel: document.getElementById('erosionMaskPanel'),
+  heightMaskMode: document.getElementById('heightMaskMode'),
+  heightMaskInvert: document.getElementById('heightMaskInvert'),
+  heightGradientCanvas: document.getElementById('heightGradientCanvas'),
+  heightGradientSelection: document.getElementById('heightGradientSelection'),
+  heightSelectedStopInfo: document.getElementById('heightSelectedStopInfo'),
+  heightGradientValue: document.getElementById('heightGradientValue'),
+  heightGradientValueDisplay: document.getElementById('heightGradientValueDisplay'),
+  heightGradientAddStop: document.getElementById('heightGradientAddStop'),
+  heightGradientReset: document.getElementById('heightGradientReset'),
+  heightGradientPresetSelect: document.getElementById('heightGradientPresetSelect'),
+  heightGradientLoadPreset: document.getElementById('heightGradientLoadPreset'),
+  heightGradientDeletePreset: document.getElementById('heightGradientDeletePreset'),
+  heightGradientPresetName: document.getElementById('heightGradientPresetName'),
+  heightGradientSavePreset: document.getElementById('heightGradientSavePreset'),
   maskLivePreview: document.getElementById('maskLivePreview'),
   maskBlendModal: document.getElementById('maskBlendModal'),
   maskBlendOverlay: document.getElementById('maskBlendOverlay'),
@@ -123,6 +139,11 @@ const state = {
   maskHistoryIndex: -1,          // Current position in history (-1 = no history)
   maxHistorySize: 50,            // Maximum number of undo states
   pendingMaskImport: null,        // { data: Float32Array, previousSnapshot: Float32Array }
+  heightGradientStops: null,
+  heightSelectedStopId: null,
+  heightDraggingStopId: null,
+  heightDraggingPointerId: null,
+  heightPresets: [],
   // Skybox state
   skybox: {
     enabled: false,
@@ -389,6 +410,560 @@ function generateSlopeMask(minSlope = 60, maxSlope = 255, falloff = -50, outputM
       out[idx] = Math.max(0, Math.min(255, value));
     }
   }
+}
+
+const HEIGHT_PRESET_STORAGE_KEY = 'dispgen_height_gradient_presets_v1';
+
+let heightGradientStopCounter = 0;
+
+function loadHeightGradientPresets() {
+  let presets = [];
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(HEIGHT_PRESET_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          presets = parsed;
+        }
+      }
+    } catch {
+      // Ignore parsing/storage errors
+    }
+  }
+  const sanitized = [];
+  if (Array.isArray(presets)) {
+    for (const entry of presets) {
+      if (!entry || typeof entry !== 'object') continue;
+      const name = typeof entry.name === 'string' ? entry.name.trim().slice(0, 64) : '';
+      if (!name) continue;
+      const stops = Array.isArray(entry.stops) ? entry.stops.map((stop) => ({
+        position: clamp01(typeof stop?.position === 'number' ? stop.position : parseFloat(stop?.position ?? 0)),
+        value: clamp01(typeof stop?.value === 'number' ? stop.value : parseFloat(stop?.value ?? 0))
+      })) : [];
+      if (stops.length < 2) continue;
+      sanitized.push({ name, stops });
+    }
+  }
+  state.heightPresets = sanitized;
+  syncHeightPresetSelect();
+}
+
+function persistHeightGradientPresets() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const serialized = JSON.stringify(state.heightPresets ?? []);
+    localStorage.setItem(HEIGHT_PRESET_STORAGE_KEY, serialized);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function syncHeightPresetSelect(forcedSelection = null) {
+  if (!el.heightGradientPresetSelect) return;
+  const select = el.heightGradientPresetSelect;
+  const presets = Array.isArray(state.heightPresets) ? state.heightPresets : [];
+  const previousValue = forcedSelection !== null ? forcedSelection : select.value;
+  select.innerHTML = '';
+  
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = presets.length ? 'Choose preset' : 'No presets saved';
+  select.appendChild(placeholder);
+  
+  for (const preset of presets) {
+    const option = document.createElement('option');
+    option.value = preset.name;
+    option.textContent = preset.name;
+    select.appendChild(option);
+  }
+  
+  if (previousValue && presets.some((preset) => preset.name === previousValue)) {
+    select.value = previousValue;
+  } else {
+    select.value = '';
+  }
+  
+  updateHeightPresetButtons();
+}
+
+function updateHeightPresetButtons() {
+  const hasSelection = !!el.heightGradientPresetSelect?.value;
+  if (el.heightGradientLoadPreset) {
+    el.heightGradientLoadPreset.disabled = !hasSelection;
+  }
+  if (el.heightGradientDeletePreset) {
+    el.heightGradientDeletePreset.disabled = !hasSelection;
+  }
+}
+
+function saveHeightGradientPreset(name) {
+  const trimmed = name.trim().slice(0, 64);
+  if (!trimmed) return false;
+  const stops = getHeightGradientStopsSorted().map((stop) => ({
+    position: clamp01(stop.position),
+    value: clamp01(stop.value)
+  }));
+  if (stops.length < 2) return false;
+  const presets = Array.isArray(state.heightPresets) ? [...state.heightPresets] : [];
+  const index = presets.findIndex((preset) => preset.name.toLowerCase() === trimmed.toLowerCase());
+  const payload = { name: trimmed, stops };
+  if (index >= 0) {
+    presets[index] = payload;
+  } else {
+    presets.push(payload);
+  }
+  presets.sort((a, b) => a.name.localeCompare(b.name));
+  state.heightPresets = presets;
+  persistHeightGradientPresets();
+  syncHeightPresetSelect(trimmed);
+  return true;
+}
+
+function loadHeightGradientPreset(name) {
+  if (!name) return false;
+  const presets = Array.isArray(state.heightPresets) ? state.heightPresets : [];
+  const preset = presets.find((entry) => entry.name === name);
+  if (!preset || !Array.isArray(preset.stops) || preset.stops.length < 2) return false;
+  const mappedStops = preset.stops.map((stop) => createHeightGradientStop(
+    clamp01(typeof stop.position === 'number' ? stop.position : parseFloat(stop.position ?? 0)),
+    clamp01(typeof stop.value === 'number' ? stop.value : parseFloat(stop.value ?? 0))
+  ));
+  if (mappedStops.length < 2) return false;
+  state.heightGradientStops = mappedStops;
+  ensureHeightGradientState();
+  state.heightSelectedStopId = state.heightGradientStops[0]?.id ?? null;
+  renderHeightGradientCanvas();
+  renderHeightGradientUI();
+  if (el.heightGradientPresetSelect) {
+    el.heightGradientPresetSelect.value = name;
+  }
+  updateHeightPresetButtons();
+  updateHeightMaskPreview();
+  return true;
+}
+
+function deleteHeightGradientPreset(name) {
+  if (!name) return false;
+  const presets = Array.isArray(state.heightPresets) ? [...state.heightPresets] : [];
+  const next = presets.filter((preset) => preset.name !== name);
+  if (next.length === presets.length) return false;
+  state.heightPresets = next;
+  persistHeightGradientPresets();
+  syncHeightPresetSelect('');
+  return true;
+}
+
+function createHeightGradientStop(position, value) {
+  heightGradientStopCounter += 1;
+  return {
+    id: heightGradientStopCounter,
+    position: clamp01(position),
+    value: clamp01(value)
+  };
+}
+
+function ensureHeightGradientState() {
+  if (!Array.isArray(state.heightGradientStops) || state.heightGradientStops.length < 2) {
+    state.heightGradientStops = [
+      createHeightGradientStop(0, 0),
+      createHeightGradientStop(1, 1)
+    ];
+  } else {
+    state.heightGradientStops = state.heightGradientStops.map((stop) => ({
+      id: stop.id ?? createHeightGradientStop(stop.position ?? 0, stop.value ?? 0).id,
+      position: clamp01(stop.position ?? 0),
+      value: clamp01(stop.value ?? 0)
+    }));
+  }
+  state.heightGradientStops.sort((a, b) => a.position - b.position);
+  if (!state.heightSelectedStopId || !state.heightGradientStops.some((stop) => stop.id === state.heightSelectedStopId)) {
+    state.heightSelectedStopId = state.heightGradientStops[0]?.id ?? null;
+  }
+  return state.heightGradientStops;
+}
+
+function getHeightGradientStopsSorted() {
+  return [...ensureHeightGradientState()];
+}
+
+function getSelectedHeightStop() {
+  const stops = ensureHeightGradientState();
+  let selected = stops.find((stop) => stop.id === state.heightSelectedStopId);
+  if (!selected && stops.length) {
+    state.heightSelectedStopId = stops[0].id;
+    selected = stops[0];
+  }
+  return selected ?? null;
+}
+
+function setSelectedHeightStop(stopId, { rerender = true } = {}) {
+  const stops = ensureHeightGradientState();
+  if (stopId && stops.some((stop) => stop.id === stopId)) {
+    state.heightSelectedStopId = stopId;
+  }
+  if (rerender) {
+    renderHeightGradientCanvas();
+    renderHeightGradientUI();
+  }
+}
+
+function sampleHeightGradientValue(stops, t) {
+  if (!stops.length) return 0;
+  if (t <= stops[0].position) return stops[0].value;
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    if (t <= b.position) {
+      const span = Math.max(1e-6, b.position - a.position);
+      const u = (t - a.position) / span;
+      return a.value + (b.value - a.value) * u;
+    }
+  }
+  return stops[stops.length - 1].value;
+}
+
+function generateHeightMask(stops = null, outputMask = null) {
+  if (!state.heightmap) return null;
+  const W = state.resizedWidth;
+  const H = state.resizedHeight;
+  if (!W || !H) return null;
+  const total = W * H;
+  
+  let out = outputMask;
+  if (!out || out.length !== total) {
+    out = new Float32Array(total);
+  }
+  
+  const gradientStops = stops ? [...stops] : getHeightGradientStopsSorted();
+  if (!gradientStops.length) {
+    out.fill(0);
+    return out;
+  }
+  
+  gradientStops.sort((a, b) => a.position - b.position);
+  const lut = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    lut[i] = clamp01(sampleHeightGradientValue(gradientStops, t)) * 255;
+  }
+  
+  const hm = state.heightmap;
+  for (let i = 0; i < total; i++) {
+    const h = hm[i];
+    const lutIndex = Math.max(0, Math.min(255, Math.round(h)));
+    out[i] = lut[lutIndex];
+  }
+  
+  return out;
+}
+
+function renderHeightGradientCanvas() {
+  if (!el.heightGradientCanvas) return;
+  const ctx = el.heightGradientCanvas.getContext('2d');
+  if (!ctx) return;
+  const { width, height } = el.heightGradientCanvas;
+  ctx.clearRect(0, 0, width, height);
+  
+  const stops = getHeightGradientStopsSorted();
+  if (!stops.length) {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, width, height);
+    return;
+  }
+  
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, width, height);
+  
+  const barTop = height * 0.32;
+  const barHeight = height * 0.36;
+  const gradient = ctx.createLinearGradient(0, 0, width, 0);
+  for (const stop of stops) {
+    const v = clamp01(stop.value);
+    const c = Math.round(v * 255);
+    gradient.addColorStop(clamp01(stop.position), `rgb(${c},${c},${c})`);
+  }
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, barTop, width, barHeight);
+  
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, barTop);
+  ctx.lineTo(width, barTop);
+  ctx.moveTo(0, barTop + barHeight);
+  ctx.lineTo(width, barTop + barHeight);
+  ctx.stroke();
+  
+  const selectedId = state.heightSelectedStopId;
+  for (const stop of stops) {
+    const x = clamp01(stop.position) * width;
+    const valueColor = Math.round(clamp01(stop.value) * 255);
+    const isSelected = stop.id === selectedId;
+    ctx.lineWidth = isSelected ? 3 : 2;
+    ctx.strokeStyle = isSelected ? 'rgba(167, 139, 250, 0.95)' : 'rgba(129, 140, 248, 0.6)';
+    ctx.beginPath();
+    ctx.moveTo(x, barTop - 8);
+    ctx.lineTo(x, barTop + barHeight + 8);
+    ctx.stroke();
+    
+    ctx.fillStyle = `rgb(${valueColor},${valueColor},${valueColor})`;
+    ctx.beginPath();
+    ctx.arc(x, barTop + barHeight / 2, isSelected ? 6 : 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = isSelected ? 2.2 : 1.6;
+    ctx.strokeStyle = isSelected ? 'rgba(139, 92, 246, 0.9)' : 'rgba(30, 64, 175, 0.8)';
+    ctx.stroke();
+  }
+}
+
+function renderHeightGradientUI() {
+  if (!el.heightGradientSelection) return;
+  const stops = getHeightGradientStopsSorted();
+  const selected = getSelectedHeightStop();
+  updateHeightPresetButtons();
+  
+  if (!selected || !el.heightGradientValue || !el.heightSelectedStopInfo || !el.heightGradientValueDisplay) {
+    if (el.heightSelectedStopInfo) {
+      el.heightSelectedStopInfo.textContent = 'None';
+    }
+    if (el.heightGradientValue) {
+      el.heightGradientValue.disabled = true;
+      el.heightGradientValue.value = '0';
+    }
+    if (el.heightGradientValueDisplay) {
+      el.heightGradientValueDisplay.textContent = '0.00';
+    }
+    return;
+  }
+  
+  el.heightGradientValue.disabled = false;
+  el.heightGradientValue.value = (selected.value * 100).toString();
+  el.heightGradientValueDisplay.textContent = selected.value.toFixed(2);
+  const positionPercent = (selected.position * 100).toFixed(1);
+  el.heightSelectedStopInfo.textContent = `Pos ${positionPercent}%`;
+  
+  if (stops.length <= 2) {
+    el.heightGradientSelection.classList.add('opacity-90');
+  } else {
+    el.heightGradientSelection.classList.remove('opacity-90');
+  }
+  updateHeightPresetButtons();
+}
+
+function updateHeightGradientStop(stopId, updates) {
+  ensureHeightGradientState();
+  let modified = false;
+  state.heightGradientStops = state.heightGradientStops.map((stop) => {
+    if (stop.id !== stopId) return stop;
+    const updated = { ...stop };
+    if (updates.position !== undefined) {
+      updated.position = clamp01(updates.position);
+    }
+    if (updates.value !== undefined) {
+      updated.value = clamp01(updates.value);
+    }
+    modified = true;
+    return updated;
+  });
+  if (!modified) return;
+  state.heightGradientStops.sort((a, b) => a.position - b.position);
+  renderHeightGradientCanvas();
+  renderHeightGradientUI();
+  updateHeightMaskPreview();
+}
+
+function addHeightGradientStop(position = null) {
+  const stops = getHeightGradientStopsSorted();
+  if (!stops.length) {
+    state.heightGradientStops = [
+      createHeightGradientStop(0, 0),
+      createHeightGradientStop(1, 1)
+    ];
+    ensureHeightGradientState();
+    renderHeightGradientCanvas();
+    renderHeightGradientUI();
+    updateHeightMaskPreview();
+    return;
+  }
+  
+  let insertPosition = position;
+  let insertValue;
+  
+  if (insertPosition === null || insertPosition === undefined) {
+    let largestGap = -1;
+    for (let i = 0; i < stops.length - 1; i++) {
+      const a = stops[i];
+      const b = stops[i + 1];
+      const gap = b.position - a.position;
+      if (gap > largestGap) {
+        largestGap = gap;
+        insertPosition = clamp01(a.position + gap / 2);
+      }
+    }
+    insertValue = clamp01(sampleHeightGradientValue(stops, insertPosition ?? 0.5));
+  } else {
+    insertPosition = clamp01(insertPosition);
+    insertValue = clamp01(sampleHeightGradientValue(stops, insertPosition));
+  }
+  
+  const newStop = createHeightGradientStop(insertPosition ?? 0.5, insertValue ?? 0.5);
+  state.heightGradientStops = [...stops, newStop];
+  state.heightGradientStops.sort((a, b) => a.position - b.position);
+  state.heightSelectedStopId = newStop.id;
+  renderHeightGradientCanvas();
+  renderHeightGradientUI();
+  updateHeightMaskPreview();
+}
+
+function resetHeightGradientStops() {
+  state.heightGradientStops = [
+    createHeightGradientStop(0, 0),
+    createHeightGradientStop(1, 1)
+  ];
+  ensureHeightGradientState();
+  state.heightSelectedStopId = state.heightGradientStops[0]?.id ?? null;
+  renderHeightGradientCanvas();
+  renderHeightGradientUI();
+  updateHeightMaskPreview();
+}
+
+function removeSelectedHeightStop() {
+  const stops = getHeightGradientStopsSorted();
+  if (stops.length <= 2) return false;
+  const selected = getSelectedHeightStop();
+  if (!selected) return false;
+  const index = stops.findIndex((stop) => stop.id === selected.id);
+  if (index <= 0 || index >= stops.length - 1) return false;
+  
+  state.heightGradientStops = state.heightGradientStops.filter((stop) => stop.id !== selected.id);
+  ensureHeightGradientState();
+  const nextStops = getHeightGradientStopsSorted();
+  const nextIndex = Math.min(index, nextStops.length - 1);
+  state.heightSelectedStopId = nextStops[nextIndex]?.id ?? nextStops[nextStops.length - 1]?.id ?? null;
+  
+  renderHeightGradientCanvas();
+  renderHeightGradientUI();
+  updateHeightMaskPreview();
+  return true;
+}
+
+function heightCanvasPositionFromEvent(event) {
+  if (!el.heightGradientCanvas) return null;
+  const rect = el.heightGradientCanvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const position = clamp01(x / Math.max(1, rect.width));
+  return { x, width: rect.width, position };
+}
+
+function handleHeightCanvasPointerDown(event) {
+  if (!el.heightGradientCanvas) return;
+  const metrics = heightCanvasPositionFromEvent(event);
+  if (!metrics) return;
+  
+  const stops = getHeightGradientStopsSorted();
+  let closestStop = null;
+  let closestDistance = Infinity;
+  for (const stop of stops) {
+    const distance = Math.abs(stop.position - metrics.position) * metrics.width;
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestStop = stop;
+    }
+  }
+  
+  const thresholdPx = 12;
+  if (closestStop && closestDistance <= thresholdPx) {
+    setSelectedHeightStop(closestStop.id);
+    state.heightDraggingStopId = closestStop.id;
+    state.heightDraggingPointerId = event.pointerId;
+    el.heightGradientCanvas.setPointerCapture(event.pointerId);
+  }
+}
+
+function handleHeightCanvasPointerMove(event) {
+  if (!el.heightGradientCanvas) return;
+  if (!state.heightDraggingStopId) return;
+  if (state.heightDraggingPointerId !== null && state.heightDraggingPointerId !== event.pointerId) return;
+  
+  const metrics = heightCanvasPositionFromEvent(event);
+  if (!metrics) return;
+  
+  const stops = getHeightGradientStopsSorted();
+  const index = stops.findIndex((stop) => stop.id === state.heightDraggingStopId);
+  if (index === -1) return;
+  const epsilon = 0.0005;
+  const minPos = index === 0 ? 0 : stops[index - 1].position + epsilon;
+  const maxPos = index === stops.length - 1 ? 1 : stops[index + 1].position - epsilon;
+  const clamped = Math.max(minPos, Math.min(maxPos, metrics.position));
+  
+  updateHeightGradientStop(state.heightDraggingStopId, { position: clamped });
+}
+
+function stopHeightCanvasDrag(event) {
+  if (!el.heightGradientCanvas) return;
+  if (state.heightDraggingPointerId !== null && event && state.heightDraggingPointerId !== event.pointerId) {
+    return;
+  }
+  if (state.heightDraggingPointerId !== null) {
+    try {
+      el.heightGradientCanvas.releasePointerCapture(state.heightDraggingPointerId);
+    } catch {
+      // Ignore if pointer capture already lost
+    }
+  }
+  state.heightDraggingStopId = null;
+  state.heightDraggingPointerId = null;
+}
+
+function handleHeightCanvasPointerUp(event) {
+  stopHeightCanvasDrag(event);
+}
+
+function handleHeightCanvasPointerLeave(event) {
+  stopHeightCanvasDrag(event);
+}
+
+function handleHeightCanvasDoubleClick(event) {
+  if (!el.heightGradientCanvas) return;
+  const metrics = heightCanvasPositionFromEvent(event);
+  if (!metrics) return;
+  addHeightGradientStop(metrics.position);
+}
+
+function updateHeightMaskPreview() {
+  if (!state.heightmap) return;
+  const W = state.resizedWidth;
+  const H = state.resizedHeight;
+  if (!W || !H) return;
+  
+  const mode = el.heightMaskMode?.value || 'add';
+  const invert = !!el.heightMaskInvert?.checked;
+  const stops = getHeightGradientStopsSorted();
+  if (!stops.length) return;
+  
+  const generatedMask = new Float32Array(W * H);
+  generateHeightMask(stops, generatedMask);
+  
+  if (invert) {
+    for (let i = 0; i < generatedMask.length; i++) {
+      generatedMask[i] = 255 - generatedMask[i];
+    }
+  }
+  
+  if (!state.previewMask || state.previewMask.length !== W * H) {
+    state.previewMask = new Float32Array(W * H);
+  }
+  
+  const baseMask = (state.mask && state.mask.length === W * H) ? state.mask : null;
+  for (let i = 0; i < generatedMask.length; i++) {
+    const base = baseMask ? baseMask[i] : 0;
+    state.previewMask[i] = mode === 'add'
+      ? Math.min(255, base + generatedMask[i])
+      : Math.max(0, base - generatedMask[i]);
+  }
+  
+  render3DPreview();
 }
 
 function createSeededRandom(seed) {
@@ -2494,6 +3069,7 @@ function openMaskGeneratorPanel(type) {
     el.maskGeneratorTitle.textContent = 'Generate Slope Mask';
     el.slopeMaskPanel.classList.remove('hidden');
     el.noiseMaskPanel.classList.add('hidden');
+    if (el.heightMaskPanel) el.heightMaskPanel.classList.add('hidden');
     if (el.erosionMaskPanel) el.erosionMaskPanel.classList.add('hidden');
     // Generate preview immediately with current/default values
     if (state.heightmap) {
@@ -2545,6 +3121,7 @@ function openMaskGeneratorPanel(type) {
     el.maskGeneratorTitle.textContent = 'Generate Noise Mask';
     el.slopeMaskPanel.classList.add('hidden');
     el.noiseMaskPanel.classList.remove('hidden');
+    if (el.heightMaskPanel) el.heightMaskPanel.classList.add('hidden');
     if (el.erosionMaskPanel) el.erosionMaskPanel.classList.add('hidden');
     // Update type-specific UI
     const noiseType = document.getElementById('noiseType')?.value || 'perlin';
@@ -2557,10 +3134,35 @@ function openMaskGeneratorPanel(type) {
       }
       updateNoisePreview(true);
     }
+  } else if (type === 'height') {
+    el.maskGeneratorTitle.textContent = 'Generate Height Mask';
+    if (el.slopeMaskPanel) el.slopeMaskPanel.classList.add('hidden');
+    if (el.noiseMaskPanel) el.noiseMaskPanel.classList.add('hidden');
+    if (el.erosionMaskPanel) el.erosionMaskPanel.classList.add('hidden');
+    if (el.heightMaskPanel) el.heightMaskPanel.classList.remove('hidden');
+    ensureHeightGradientState();
+    renderHeightGradientCanvas();
+    renderHeightGradientUI();
+    syncHeightPresetSelect();
+    
+    if (state.heightmap) {
+      if (!generatorPreSnapshotSaved) {
+        saveMaskState();
+        generatorPreSnapshotSaved = true;
+      }
+      if (!state.previewMask || state.previewMask.length !== state.resizedWidth * state.resizedHeight) {
+        state.previewMask = new Float32Array(state.resizedWidth * state.resizedHeight);
+        if (state.mask && state.mask.length === state.previewMask.length) {
+          state.previewMask.set(state.mask);
+        }
+      }
+      updateHeightMaskPreview();
+    }
   } else if (type === 'erosion') {
     el.maskGeneratorTitle.textContent = 'Generate Erosion Mask';
     if (el.slopeMaskPanel) el.slopeMaskPanel.classList.add('hidden');
     if (el.noiseMaskPanel) el.noiseMaskPanel.classList.add('hidden');
+    if (el.heightMaskPanel) el.heightMaskPanel.classList.add('hidden');
     if (el.erosionMaskPanel) el.erosionMaskPanel.classList.remove('hidden');
 
     if (state.heightmap) {
@@ -3177,15 +3779,120 @@ function setupNoiseTypeSpecificListeners() {
   updatePersistenceLacunarityState();
 }
 
+loadHeightGradientPresets();
+ensureHeightGradientState();
+renderHeightGradientCanvas();
+renderHeightGradientUI();
+
 if (el.genSlopeMask) el.genSlopeMask.addEventListener('click', () => openMaskGeneratorPanel('slope'));
 if (el.genNoiseMask) el.genNoiseMask.addEventListener('click', () => openMaskGeneratorPanel('noise'));
+if (el.genHeightMask) el.genHeightMask.addEventListener('click', () => openMaskGeneratorPanel('height'));
 if (el.genErosionMask) el.genErosionMask.addEventListener('click', () => openMaskGeneratorPanel('erosion'));
 if (el.closeMaskGenerator) el.closeMaskGenerator.addEventListener('click', closeMaskGeneratorPanel);
+
+if (el.heightGradientAddStop) {
+  el.heightGradientAddStop.addEventListener('click', () => {
+    addHeightGradientStop();
+  });
+}
+if (el.heightGradientReset) {
+  el.heightGradientReset.addEventListener('click', () => {
+    resetHeightGradientStops();
+  });
+}
+if (el.heightGradientCanvas) {
+  el.heightGradientCanvas.addEventListener('pointerdown', handleHeightCanvasPointerDown);
+  el.heightGradientCanvas.addEventListener('pointermove', handleHeightCanvasPointerMove);
+  el.heightGradientCanvas.addEventListener('pointerup', handleHeightCanvasPointerUp);
+  el.heightGradientCanvas.addEventListener('pointercancel', handleHeightCanvasPointerUp);
+  el.heightGradientCanvas.addEventListener('pointerleave', handleHeightCanvasPointerLeave);
+  el.heightGradientCanvas.addEventListener('dblclick', handleHeightCanvasDoubleClick);
+}
+if (el.heightGradientPresetSelect) {
+  el.heightGradientPresetSelect.addEventListener('change', () => {
+    updateHeightPresetButtons();
+  });
+}
+if (el.heightGradientSavePreset) {
+  el.heightGradientSavePreset.addEventListener('click', () => {
+    const nameField = el.heightGradientPresetName;
+    const rawName = nameField?.value ?? '';
+    if (!rawName.trim()) return;
+    const saved = saveHeightGradientPreset(rawName);
+    if (saved && nameField) {
+      nameField.value = '';
+    }
+  });
+}
+if (el.heightGradientPresetName) {
+  el.heightGradientPresetName.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      el.heightGradientSavePreset?.click();
+    }
+  });
+}
+if (el.heightGradientLoadPreset) {
+  el.heightGradientLoadPreset.addEventListener('click', () => {
+    const name = el.heightGradientPresetSelect?.value;
+    if (!name) return;
+    loadHeightGradientPreset(name);
+  });
+}
+if (el.heightGradientDeletePreset) {
+  el.heightGradientDeletePreset.addEventListener('click', () => {
+    const name = el.heightGradientPresetSelect?.value;
+    if (!name) return;
+    deleteHeightGradientPreset(name);
+  });
+}
+if (el.heightGradientValue) {
+  el.heightGradientValue.addEventListener('input', (event) => {
+    const selected = getSelectedHeightStop();
+    if (!selected) return;
+    const raw = parseFloat(event.target.value);
+    const normalized = clamp01((Number.isFinite(raw) ? raw : 0) / 100);
+    if (el.heightGradientValueDisplay) {
+      el.heightGradientValueDisplay.textContent = normalized.toFixed(2);
+    }
+    updateHeightGradientStop(selected.id, { value: normalized });
+  });
+}
+if (el.heightMaskMode) {
+  el.heightMaskMode.addEventListener('change', () => {
+    if (!el.heightMaskPanel?.classList.contains('hidden')) {
+      updateHeightMaskPreview();
+    }
+  });
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Delete') return;
+  const target = event.target;
+  const tag = target?.tagName?.toLowerCase?.() || '';
+  if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) {
+    return;
+  }
+  const panelVisible = !el.heightMaskPanel?.classList.contains('hidden');
+  if (!panelVisible) return;
+  const removed = removeSelectedHeightStop();
+  if (removed) {
+    event.preventDefault();
+  }
+});
+if (el.heightMaskInvert) {
+  el.heightMaskInvert.addEventListener('change', () => {
+    if (!el.heightMaskPanel?.classList.contains('hidden')) {
+      updateHeightMaskPreview();
+    }
+  });
+}
 
 // Apply buttons
 const applySlopeMask = document.getElementById('applySlopeMask');
 const applyNoiseMask = document.getElementById('applyNoiseMask');
 const applyErosionMask = document.getElementById('applyErosionMask');
+const applyHeightMask = document.getElementById('applyHeightMask');
 
 if (applySlopeMask) {
   applySlopeMask.addEventListener('click', () => {
@@ -3293,6 +4000,47 @@ if (applyNoiseMask) {
     // Save state after applying (so this operation can be undone in one step)
     saveMaskState();
     
+    render3DPreview();
+    closeMaskGeneratorPanel();
+  });
+}
+
+if (applyHeightMask) {
+  applyHeightMask.addEventListener('click', () => {
+    if (!state.heightmap) return;
+    const W = state.resizedWidth;
+    const H = state.resizedHeight;
+    if (!W || !H) return;
+    
+    const mode = el.heightMaskMode?.value || 'add';
+    const invert = !!el.heightMaskInvert?.checked;
+    const stops = getHeightGradientStopsSorted();
+    if (!stops.length) return;
+    
+    if (!state.mask || state.mask.length !== W * H) {
+      state.mask = new Float32Array(W * H);
+    }
+    
+    const generatedMask = generateHeightMask(stops);
+    if (!generatedMask) return;
+    
+    if (invert) {
+      for (let i = 0; i < generatedMask.length; i++) {
+        generatedMask[i] = 255 - generatedMask[i];
+      }
+    }
+    
+    if (mode === 'add') {
+      for (let i = 0; i < generatedMask.length; i++) {
+        state.mask[i] = Math.min(255, state.mask[i] + generatedMask[i]);
+      }
+    } else {
+      for (let i = 0; i < generatedMask.length; i++) {
+        state.mask[i] = Math.max(0, state.mask[i] - generatedMask[i]);
+      }
+    }
+    
+    saveMaskState();
     render3DPreview();
     closeMaskGeneratorPanel();
   });

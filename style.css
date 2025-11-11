@@ -2,6 +2,14 @@ html, body {
   height: 100%;
 }
 
+:root {
+  color-scheme: dark;
+}
+
+* {
+  scrollbar-width: none;
+}
+
 #threeCanvas {
   width: 100%;
   height: 100%;
