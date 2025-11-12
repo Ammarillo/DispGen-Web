@@ -66,7 +66,17 @@ const el = {
   maskBlendAdd: document.getElementById('maskBlendAdd'),
   maskBlendSubtract: document.getElementById('maskBlendSubtract'),
   maskBlendOverride: document.getElementById('maskBlendOverride'),
-  maskBlendCancel: document.getElementById('maskBlendCancel')
+  maskBlendCancel: document.getElementById('maskBlendCancel'),
+  // Vis Optimisation elements
+  tabVisOptimisation: document.getElementById('tabVisOptimisation'),
+  visGridDensity: document.getElementById('visGridDensity'),
+  visIterations: document.getElementById('visIterations'),
+  visSurfaceOffset: document.getElementById('visSurfaceOffset'),
+  visOptimisationInfo: document.getElementById('visOptimisationInfo'),
+  generateVisBlocks: document.getElementById('generateVisBlocks'),
+  generateVisBlocksText: document.getElementById('generateVisBlocksText'),
+  generateVisBlocksSpinner: document.getElementById('generateVisBlocksSpinner'),
+  showVisBlocks: document.getElementById('showVisBlocks')
 };
 
 // ---------------------------------------------------------------------------
@@ -152,7 +162,9 @@ const state = {
     maxSkyboxSize: 32768,
     maxBoundsVisible: false,
     skyboxBoundsVisible: false
-  }
+  },
+  // Vis Optimisation state
+  visBlocks: null                // Array of optimized blocks after greedy meshing
 };
 
 // ------------------------ Helpers ---------------------------
@@ -1998,7 +2010,8 @@ function ensureThree() {
     mouse,
     brushCircle,
     maxBoundsLines: null,
-    skyboxLines: null
+    skyboxLines: null,
+    visBlocksLines: null
   };
 
   // Optional: create a max-bounds visualization (wireframe cube) around the displacement area
@@ -2556,6 +2569,76 @@ function render3DPreview() {
     }
   }
 
+  // Vis blocks visualization
+  if (state.three.visBlocksLines) {
+    scene.remove(state.three.visBlocksLines);
+    state.three.visBlocksLines.geometry.dispose();
+    state.three.visBlocksLines.material.dispose();
+    state.three.visBlocksLines = null;
+  }
+
+  if (el.showVisBlocks && el.showVisBlocks.checked && state.visBlocks && state.visBlocks.length > 0) {
+    const visLineMat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(0x4043A3),
+      depthTest: true,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.8
+    });
+
+    // Create edges for all vis blocks
+    const positions = [];
+    const indices = [];
+    let vertexOffset = 0;
+
+    for (const block of state.visBlocks) {
+      const halfX = block.widthX / 2;
+      const halfY = block.widthY / 2;
+      const halfZ = block.widthZ / 2;
+      const centerX = block.x + halfX;
+      const centerY = block.y + halfY;
+      const centerZ = block.z + halfZ;
+
+      // 8 corners of the box
+      const corners = [
+        [centerX - halfX, centerY - halfY, centerZ - halfZ], // 0
+        [centerX + halfX, centerY - halfY, centerZ - halfZ], // 1
+        [centerX + halfX, centerY + halfY, centerZ - halfZ], // 2
+        [centerX - halfX, centerY + halfY, centerZ - halfZ], // 3
+        [centerX - halfX, centerY - halfY, centerZ + halfZ], // 4
+        [centerX + halfX, centerY - halfY, centerZ + halfZ], // 5
+        [centerX + halfX, centerY + halfY, centerZ + halfZ], // 6
+        [centerX - halfX, centerY + halfY, centerZ + halfZ]  // 7
+      ];
+
+      // Add vertices
+      for (const corner of corners) {
+        positions.push(corner[0], corner[1], corner[2]);
+      }
+
+      // Add edges (12 edges per box)
+      const edgePairs = [
+        [0, 1], [1, 2], [2, 3], [3, 0], // bottom face
+        [4, 5], [5, 6], [6, 7], [7, 4], // top face
+        [0, 4], [1, 5], [2, 6], [3, 7]  // vertical edges
+      ];
+
+      for (const [a, b] of edgePairs) {
+        indices.push(vertexOffset + a, vertexOffset + b);
+      }
+
+      vertexOffset += 8;
+    }
+
+    const visGeom = new THREE.BufferGeometry();
+    visGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    visGeom.setIndex(indices);
+    const visLines = new THREE.LineSegments(visGeom, visLineMat);
+    visLines.renderOrder = 1; // Render after mesh
+    scene.add(visLines);
+    state.three.visBlocksLines = visLines;
+  }
+
   if (shouldPreserveCamera && savedPosition && savedTarget) {
     camera.position.copy(savedPosition);
     controls.target.copy(savedTarget);
@@ -2788,6 +2871,25 @@ function generateVMF() {
     addSkyboxBrushes(map, width, depth, heightScale, offsetValue);
   }
 
+  // Add vis blocks if they exist
+  if (state.visBlocks && state.visBlocks.length > 0) {
+    const visMaterial = 'dev/dev_blendmeasure';
+    for (const block of state.visBlocks) {
+      const origin = new Vertex(
+        block.x + block.widthX / 2,
+        block.y + block.widthY / 2,
+        block.z + block.widthZ / 2
+      );
+      const dimensions = [block.widthX, block.widthY, block.widthZ];
+      const visBlock = new Block(origin, dimensions, visMaterial);
+      // Set lightmapscale to 1024 on all sides
+      for (let i = 0; i < 6; i++) {
+        visBlock.brush.children[i].lightmapscale = 1024;
+      }
+      map.world.children.push(visBlock);
+    }
+  }
+
   return map.writeString();
 }
 
@@ -2814,6 +2916,10 @@ el.heightmapInput.addEventListener('change', async (e) => {
     generateBtns.forEach(btn => {
       if (btn) btn.disabled = false;
     });
+    // Enable vis optimisation button
+    if (el.generateVisBlocks) {
+      el.generateVisBlocks.disabled = false;
+    }
     render3DPreview();
     updateSkyboxInfoDisplay();
     updateSkyboxVisualization();
@@ -2867,16 +2973,394 @@ generateBtns.forEach(btn => {
   }
 });
 
+// Vis Optimisation event listeners
+if (el.generateVisBlocks) {
+  el.generateVisBlocks.addEventListener('click', generateVisBlocks);
+}
+
+if (el.showVisBlocks) {
+  el.showVisBlocks.addEventListener('change', () => {
+    if (state.heightmap) render3DPreview();
+  });
+}
+
 // Initial label
 updateDimensionsLabel();
+
+// ------------------------ Vis Optimisation ------------------------
+
+/**
+ * 3D Rasterize the terrain area and keep only cells fully below the terrain
+ * Returns a 3D array where true means the cell is fully below terrain
+ * @param {number} gridDensity - Size of each grid cell in units
+ * @param {number} surfaceOffset - Offset to add to terrain height (in units)
+ */
+function rasterizeTerrain3D(gridDensity, surfaceOffset = 0) {
+  if (!state.heightmap) return null;
+  
+  const W = state.resizedWidth;
+  const H = state.resizedHeight;
+  const numTilesX = parseInt(el.tilesX.value, 10);
+  const numTilesY = parseInt(el.tilesY.value, 10);
+  const tileSize = parseInt(el.tileSize.value, 10);
+  const maxHeight = parseInt(el.maxHeight.value, 10);
+  
+  const totalWidth = numTilesX * tileSize;
+  const totalDepth = numTilesY * tileSize;
+  
+  // Calculate grid dimensions
+  const gridSizeX = Math.ceil(totalWidth / gridDensity);
+  const gridSizeY = Math.ceil(totalDepth / gridDensity);
+  const gridSizeZ = Math.ceil(maxHeight / gridDensity);
+  
+  // Create 3D grid (x, y, z)
+  const grid = new Array(gridSizeX);
+  for (let x = 0; x < gridSizeX; x++) {
+    grid[x] = new Array(gridSizeY);
+    for (let y = 0; y < gridSizeY; y++) {
+      grid[x][y] = new Array(gridSizeZ).fill(false);
+    }
+  }
+  
+  // Convert world coordinates to heightmap pixel coordinates
+  // Terrain is centered at origin, so:
+  // World X: [-totalWidth/2, totalWidth/2] -> Heightmap X: [0, W-1]
+  // World Y: [-totalDepth/2, totalDepth/2] -> Heightmap Y: [0, H-1]
+  const worldToHeightmapX = (worldX) => {
+    const normalizedX = (worldX + totalWidth / 2) / totalWidth;
+    return normalizedX * (W - 1);
+  };
+  const worldToHeightmapY = (worldY) => {
+    const normalizedY = (worldY + totalDepth / 2) / totalDepth;
+    return normalizedY * (H - 1);
+  };
+  
+  // For each grid cell, check if all 8 corners are below terrain
+  for (let gx = 0; gx < gridSizeX; gx++) {
+    for (let gy = 0; gy < gridSizeY; gy++) {
+      for (let gz = 0; gz < gridSizeZ; gz++) {
+        // Calculate world position of cell center
+        const worldX = (gx + 0.5) * gridDensity - totalWidth / 2;
+        const worldY = (gy + 0.5) * gridDensity - totalDepth / 2;
+        const worldZ = (gz + 0.5) * gridDensity;
+        
+        // Check all 8 corners of the cell
+        const cellHalfSize = gridDensity / 2;
+        let allBelow = true;
+        
+        for (let dx = -1; dx <= 1; dx += 2) {
+          for (let dy = -1; dy <= 1; dy += 2) {
+            for (let dz = -1; dz <= 1; dz += 2) {
+              const cornerX = worldX + dx * cellHalfSize;
+              const cornerY = worldY + dy * cellHalfSize;
+              const cornerZ = worldZ + dz * cellHalfSize;
+              
+              // Sample terrain height at this corner's X,Y position
+              const hmX = worldToHeightmapX(cornerX);
+              const hmY = worldToHeightmapY(cornerY);
+              const terrainHeight = bilinearSample(state.heightmap, W, H, hmX, hmY);
+              const terrainZ = (terrainHeight / 255.0) * maxHeight + surfaceOffset;
+              
+              // Check if corner is below terrain (with offset)
+              if (cornerZ >= terrainZ) {
+                allBelow = false;
+                break;
+              }
+            }
+            if (!allBelow) break;
+          }
+          if (!allBelow) break;
+        }
+        
+        grid[gx][gy][gz] = allBelow;
+      }
+    }
+  }
+  
+  return { grid, gridSizeX, gridSizeY, gridSizeZ, gridDensity };
+}
+
+/**
+ * Greedy mesh algorithm using iterative random approach
+ * Returns array of optimized blocks: { x, y, z, widthX, widthY, widthZ }
+ */
+function greedyMesh(rasterData, iterations) {
+  if (!rasterData) return [];
+  
+  const { grid, gridSizeX, gridSizeY, gridSizeZ, gridDensity } = rasterData;
+  
+  // Get world coordinate offsets
+  const numTilesX = parseInt(el.tilesX.value, 10);
+  const numTilesY = parseInt(el.tilesY.value, 10);
+  const tileSize = parseInt(el.tileSize.value, 10);
+  const totalWidth = numTilesX * tileSize;
+  const totalDepth = numTilesY * tileSize;
+  const worldOffsetX = -totalWidth / 2;
+  const worldOffsetY = -totalDepth / 2;
+  
+  // Cache for seeds and their block counts
+  const seedResults = [];
+  
+  // Process each Z layer separately
+  for (let z = 0; z < gridSizeZ; z++) {
+    // Create a 2D mask for this layer (true = solid, false = empty)
+    const layer = new Array(gridSizeX);
+    for (let x = 0; x < gridSizeX; x++) {
+      layer[x] = new Array(gridSizeY).fill(false);
+      for (let y = 0; y < gridSizeY; y++) {
+        layer[x][y] = grid[x][y][z];
+      }
+    }
+    
+    // Get list of all solid voxels in this layer
+    const solidVoxels = [];
+    for (let x = 0; x < gridSizeX; x++) {
+      for (let y = 0; y < gridSizeY; y++) {
+        if (layer[x][y]) {
+          solidVoxels.push({ x, y });
+        }
+      }
+    }
+    
+    if (solidVoxels.length === 0) continue;
+    
+    // Try different seeds
+    for (let iter = 0; iter < iterations; iter++) {
+      const seed = iter;
+      const random = createSeededRandom(seed);
+      const processed = new Array(gridSizeX);
+      for (let x = 0; x < gridSizeX; x++) {
+        processed[x] = new Array(gridSizeY).fill(false);
+      }
+      
+      const blocks = [];
+      const remainingVoxels = [...solidVoxels];
+      
+      // Process until all voxels are covered
+      while (remainingVoxels.length > 0) {
+        // Choose a random remaining voxel
+        const randomIndex = Math.floor(random() * remainingVoxels.length);
+        const startVoxel = remainingVoxels[randomIndex];
+        
+        if (processed[startVoxel.x][startVoxel.y]) {
+          // Remove processed voxels from the list
+          remainingVoxels.splice(randomIndex, 1);
+          continue;
+        }
+        
+        // Start expanding from this voxel
+        let minX = startVoxel.x;
+        let maxX = startVoxel.x;
+        let minY = startVoxel.y;
+        let maxY = startVoxel.y;
+        
+        let canExpand = true;
+        while (canExpand) {
+          canExpand = false;
+          
+          // Try to expand in all 4 directions
+          const directions = [
+            { dx: -1, dy: 0, check: () => minX > 0, expand: () => minX-- },
+            { dx: 1, dy: 0, check: () => maxX < gridSizeX - 1, expand: () => maxX++ },
+            { dx: 0, dy: -1, check: () => minY > 0, expand: () => minY-- },
+            { dx: 0, dy: 1, check: () => maxY < gridSizeY - 1, expand: () => maxY++ }
+          ];
+          
+          // Shuffle directions randomly
+          for (let i = directions.length - 1; i > 0; i--) {
+            const j = Math.floor(random() * (i + 1));
+            [directions[i], directions[j]] = [directions[j], directions[i]];
+          }
+          
+          // Try each direction
+          for (const dir of directions) {
+            if (!dir.check()) continue;
+            
+            // Check if we can expand in this direction
+            let canExpandDir = true;
+            if (dir.dx !== 0) {
+              const checkX = dir.dx > 0 ? maxX + 1 : minX - 1;
+              for (let y = minY; y <= maxY; y++) {
+                if (!layer[checkX][y] || processed[checkX][y]) {
+                  canExpandDir = false;
+                  break;
+                }
+              }
+              if (canExpandDir) {
+                dir.expand();
+                canExpand = true;
+                break;
+              }
+            } else {
+              const checkY = dir.dy > 0 ? maxY + 1 : minY - 1;
+              for (let x = minX; x <= maxX; x++) {
+                if (!layer[x][checkY] || processed[x][checkY]) {
+                  canExpandDir = false;
+                  break;
+                }
+              }
+              if (canExpandDir) {
+                dir.expand();
+                canExpand = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        // Mark all cells in this rectangle as processed
+        for (let x = minX; x <= maxX; x++) {
+          for (let y = minY; y <= maxY; y++) {
+            processed[x][y] = true;
+            // Remove from remaining voxels
+            const idx = remainingVoxels.findIndex(v => v.x === x && v.y === y);
+            if (idx >= 0) {
+              remainingVoxels.splice(idx, 1);
+            }
+          }
+        }
+        
+        // Add block
+        blocks.push({
+          x: worldOffsetX + (minX * gridDensity),
+          y: worldOffsetY + (minY * gridDensity),
+          z: z * gridDensity,
+          widthX: (maxX - minX + 1) * gridDensity,
+          widthY: (maxY - minY + 1) * gridDensity,
+          widthZ: gridDensity
+        });
+      }
+      
+      // Store result for this seed
+      if (!seedResults[z]) {
+        seedResults[z] = [];
+      }
+      seedResults[z].push({
+        seed,
+        blocks,
+        blockCount: blocks.length
+      });
+    }
+  }
+  
+  // Find the best seed for each layer (lowest block count)
+  const allBlocks = [];
+  for (let z = 0; z < gridSizeZ; z++) {
+    if (!seedResults[z] || seedResults[z].length === 0) continue;
+    
+    // Find seed with lowest block count
+    let bestResult = seedResults[z][0];
+    for (const result of seedResults[z]) {
+      if (result.blockCount < bestResult.blockCount) {
+        bestResult = result;
+      }
+    }
+    
+    allBlocks.push(...bestResult.blocks);
+  }
+  
+  return allBlocks;
+}
+
+/**
+ * Generate vis blocks from terrain
+ */
+function generateVisBlocks() {
+  if (!state.heightmap) {
+    alert('Please load a heightmap first');
+    return;
+  }
+  
+  const gridDensity = parseInt(el.visGridDensity.value, 10);
+  if (!gridDensity || gridDensity <= 0) {
+    alert('Grid density must be greater than 0');
+    return;
+  }
+  
+  const iterations = parseInt(el.visIterations.value, 10);
+  if (!iterations || iterations <= 0) {
+    alert('Iterations must be greater than 0');
+    return;
+  }
+  
+  // Show loading spinner
+  if (el.generateVisBlocks) {
+    el.generateVisBlocks.disabled = true;
+  }
+  if (el.generateVisBlocksText) {
+    el.generateVisBlocksText.classList.add('opacity-0');
+  }
+  if (el.generateVisBlocksSpinner) {
+    el.generateVisBlocksSpinner.classList.remove('hidden');
+  }
+  
+  // Show loading state
+  if (el.visOptimisationInfo) {
+    el.visOptimisationInfo.textContent = 'Rasterizing terrain...';
+  }
+  
+  const surfaceOffset = parseFloat(el.visSurfaceOffset.value) || 0;
+  
+  // Use setTimeout to allow UI to update
+  setTimeout(() => {
+    const rasterData = rasterizeTerrain3D(gridDensity, surfaceOffset);
+    
+    if (el.visOptimisationInfo) {
+      el.visOptimisationInfo.textContent = `Running iterative optimization (${iterations} iterations)...`;
+    }
+    
+    setTimeout(() => {
+      const blocks = greedyMesh(rasterData, iterations);
+      state.visBlocks = blocks;
+      
+      // Hide loading spinner
+      if (el.generateVisBlocksText) {
+        el.generateVisBlocksText.classList.remove('opacity-0');
+      }
+      if (el.generateVisBlocksSpinner) {
+        el.generateVisBlocksSpinner.classList.add('hidden');
+      }
+      if (el.generateVisBlocks) {
+        el.generateVisBlocks.disabled = false;
+      }
+      
+      // Update info display
+      if (el.visOptimisationInfo) {
+        const numTilesX = parseInt(el.tilesX.value, 10);
+        const numTilesY = parseInt(el.tilesY.value, 10);
+        const tileSize = parseInt(el.tileSize.value, 10);
+        const totalWidth = numTilesX * tileSize;
+        const totalDepth = numTilesY * tileSize;
+        const maxHeight = parseInt(el.maxHeight.value, 10);
+        
+        const gridSizeX = Math.ceil(totalWidth / gridDensity);
+        const gridSizeY = Math.ceil(totalDepth / gridDensity);
+        const gridSizeZ = Math.ceil(maxHeight / gridDensity);
+        const totalCells = gridSizeX * gridSizeY * gridSizeZ;
+        
+        el.visOptimisationInfo.textContent = 
+          `Grid Density: ${gridDensity} units\n` +
+          `Grid Size: ${gridSizeX} x ${gridSizeY} x ${gridSizeZ}\n` +
+          `Total Cells: ${totalCells}\n` +
+          `Optimized Blocks: ${blocks.length}\n` +
+          `Reduction: ${((1 - blocks.length / totalCells) * 100).toFixed(1)}%`;
+      }
+      
+      // Re-render preview to show blocks
+      if (state.heightmap) render3DPreview();
+    }, 10);
+  }, 10);
+}
 
 // ------------------------ Tab Switching ------------------------
 const tabTerrain = document.getElementById('tabTerrain');
 const tabMaterial = document.getElementById('tabMaterial');
 const tabSkybox = document.getElementById('tabSkybox');
+const tabVisOptimisation = document.getElementById('tabVisOptimisation');
 const contentTerrain = document.getElementById('tabContentTerrain');
 const contentMaterial = document.getElementById('tabContentMaterial');
 const contentSkybox = document.getElementById('tabContentSkybox');
+const contentVisOptimisation = document.getElementById('tabContentVisOptimisation');
 
 // Helper function to check if Material/Mask tab is active
 function isMaterialTabActive() {
@@ -2895,43 +3379,37 @@ function isShowMaskEnabled() {
 }
 
 function switchTab(tabName) {
+  // Reset all tabs
+  [tabTerrain, tabMaterial, tabSkybox, tabVisOptimisation].forEach(tab => {
+    if (tab) {
+      tab.classList.remove('active', 'text-slate-300', 'border-indigo-500');
+      tab.classList.add('text-slate-400', 'border-transparent');
+    }
+  });
+  [contentTerrain, contentMaterial, contentSkybox, contentVisOptimisation].forEach(content => {
+    if (content) content.classList.add('hidden');
+  });
+
   if (tabName === 'terrain') {
     tabTerrain.classList.add('active', 'text-slate-300', 'border-indigo-500');
     tabTerrain.classList.remove('text-slate-400', 'border-transparent');
-    tabMaterial.classList.remove('active', 'text-slate-300', 'border-indigo-500');
-    tabMaterial.classList.add('text-slate-400', 'border-transparent');
-    if (tabSkybox) {
-      tabSkybox.classList.remove('active', 'text-slate-300', 'border-indigo-500');
-      tabSkybox.classList.add('text-slate-400', 'border-transparent');
-    }
     contentTerrain.classList.remove('hidden');
-    contentMaterial.classList.add('hidden');
-    if (contentSkybox) contentSkybox.classList.add('hidden');
     if (state.heightmap) render3DPreview();
   } else if (tabName === 'skybox') {
     tabSkybox.classList.add('active', 'text-slate-300', 'border-indigo-500');
     tabSkybox.classList.remove('text-slate-400', 'border-transparent');
-    tabTerrain.classList.remove('active', 'text-slate-300', 'border-indigo-500');
-    tabTerrain.classList.add('text-slate-400', 'border-transparent');
-    tabMaterial.classList.remove('active', 'text-slate-300', 'border-indigo-500');
-    tabMaterial.classList.add('text-slate-400', 'border-transparent');
     contentSkybox.classList.remove('hidden');
-    contentTerrain.classList.add('hidden');
-    contentMaterial.classList.add('hidden');
+    if (state.heightmap) render3DPreview();
+  } else if (tabName === 'visoptimisation') {
+    tabVisOptimisation.classList.add('active', 'text-slate-300', 'border-indigo-500');
+    tabVisOptimisation.classList.remove('text-slate-400', 'border-transparent');
+    contentVisOptimisation.classList.remove('hidden');
     if (state.heightmap) render3DPreview();
   } else {
     // material tab
     tabMaterial.classList.add('active', 'text-slate-300', 'border-indigo-500');
     tabMaterial.classList.remove('text-slate-400', 'border-transparent');
-    tabTerrain.classList.remove('active', 'text-slate-300', 'border-indigo-500');
-    tabTerrain.classList.add('text-slate-400', 'border-transparent');
-    if (tabSkybox) {
-      tabSkybox.classList.remove('active', 'text-slate-300', 'border-indigo-500');
-      tabSkybox.classList.add('text-slate-400', 'border-transparent');
-    }
     contentMaterial.classList.remove('hidden');
-    contentTerrain.classList.add('hidden');
-    if (contentSkybox) contentSkybox.classList.add('hidden');
     // Re-render to show mask overlay when switching to Material tab
     if (state.heightmap) {
       render3DPreview();
@@ -2945,6 +3423,9 @@ if (tabTerrain && tabMaterial) {
 }
 if (tabSkybox) {
   tabSkybox.addEventListener('click', () => switchTab('skybox'));
+}
+if (tabVisOptimisation) {
+  tabVisOptimisation.addEventListener('click', () => switchTab('visoptimisation'));
 }
 
 // ------------------------ Number Input Counter ------------------------
@@ -2984,6 +3465,9 @@ setupInputCounter('tilesY');
 setupInputCounter('tileSize');
 setupInputCounter('maxHeight');
 setupInputCounter('skyboxTopOffset');
+setupInputCounter('visGridDensity');
+setupInputCounter('visIterations');
+setupInputCounter('visSurfaceOffset');
 
 // ------------------------ Mask Events ------------------------
 function updateBrushModeButtons() {
