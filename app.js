@@ -30,6 +30,7 @@ const el = {
   brushPaintMode: document.getElementById('brushPaintMode'),
   brushEraseMode: document.getElementById('brushEraseMode'),
   clearMask: document.getElementById('clearMask'),
+  exportMask: document.getElementById('exportMask'),
   previewBtn: document.getElementById('previewBtn'),
   generateBtn: document.querySelector('.generate-vmf-btn'),
   dimensions: document.getElementById('dimensions'),
@@ -65,17 +66,18 @@ const el = {
   maskBlendRotationValue: document.getElementById('maskBlendRotationValue'),
   maskBlendAdd: document.getElementById('maskBlendAdd'),
   maskBlendSubtract: document.getElementById('maskBlendSubtract'),
+  maskBlendIntersect: document.getElementById('maskBlendIntersect'),
   maskBlendOverride: document.getElementById('maskBlendOverride'),
   maskBlendCancel: document.getElementById('maskBlendCancel'),
   // Vis Optimisation elements
   tabVisOptimisation: document.getElementById('tabVisOptimisation'),
   visGridDensity: document.getElementById('visGridDensity'),
   visIterations: document.getElementById('visIterations'),
-  visSurfaceOffset: document.getElementById('visSurfaceOffset'),
   visOptimisationInfo: document.getElementById('visOptimisationInfo'),
   generateVisBlocks: document.getElementById('generateVisBlocks'),
   generateVisBlocksText: document.getElementById('generateVisBlocksText'),
   generateVisBlocksSpinner: document.getElementById('generateVisBlocksSpinner'),
+  cancelVisBlocks: document.getElementById('cancelVisBlocks'),
   showVisBlocks: document.getElementById('showVisBlocks')
 };
 
@@ -164,7 +166,8 @@ const state = {
     skyboxBoundsVisible: false
   },
   // Vis Optimisation state
-  visBlocks: null                // Array of optimized blocks after greedy meshing
+  visBlocks: null,               // Array of optimized blocks after greedy meshing
+  visMeshCancelled: false        // Flag to cancel greedy mesh operation
 };
 
 // ------------------------ Helpers ---------------------------
@@ -970,9 +973,13 @@ function updateHeightMaskPreview() {
   const baseMask = (state.mask && state.mask.length === W * H) ? state.mask : null;
   for (let i = 0; i < generatedMask.length; i++) {
     const base = baseMask ? baseMask[i] : 0;
-    state.previewMask[i] = mode === 'add'
-      ? Math.min(255, base + generatedMask[i])
-      : Math.max(0, base - generatedMask[i]);
+    if (mode === 'add') {
+      state.previewMask[i] = Math.min(255, base + generatedMask[i]);
+    } else if (mode === 'subtract') {
+      state.previewMask[i] = Math.max(0, base - generatedMask[i]);
+    } else if (mode === 'intersect') {
+      state.previewMask[i] = Math.min(base, generatedMask[i]);
+    }
   }
   
   render3DPreview();
@@ -1916,6 +1923,11 @@ function applyPendingMaskImport(blendMode) {
     for (let i = 0; i < len; i++) {
       state.mask[i] = Math.max(0, state.mask[i] - maskData[i]);
     }
+  } else if (blendMode === 'intersect') {
+    for (let i = 0; i < len; i++) {
+      // Intersection: take the minimum of both masks
+      state.mask[i] = Math.min(state.mask[i], maskData[i]);
+    }
   }
 
   if (pending.previousSnapshot && state.maskHistory.length === 0) {
@@ -1925,6 +1937,7 @@ function applyPendingMaskImport(blendMode) {
   saveMaskState();
   render3DPreview();
   cancelPendingMaskImport();
+  updateExportMaskButton();
 }
 
 function ensureThree() {
@@ -2923,6 +2936,7 @@ el.heightmapInput.addEventListener('change', async (e) => {
     render3DPreview();
     updateSkyboxInfoDisplay();
     updateSkyboxVisualization();
+    updateExportMaskButton();
   } catch (err) {
     alert('Failed to load heightmap: ' + err);
   }
@@ -2978,6 +2992,10 @@ if (el.generateVisBlocks) {
   el.generateVisBlocks.addEventListener('click', generateVisBlocks);
 }
 
+if (el.cancelVisBlocks) {
+  el.cancelVisBlocks.addEventListener('click', cancelVisBlocks);
+}
+
 if (el.showVisBlocks) {
   el.showVisBlocks.addEventListener('change', () => {
     if (state.heightmap) render3DPreview();
@@ -2992,10 +3010,8 @@ updateDimensionsLabel();
 /**
  * 3D Rasterize the terrain area and keep only cells fully below the terrain
  * Returns a 3D array where true means the cell is fully below terrain
- * @param {number} gridDensity - Size of each grid cell in units
- * @param {number} surfaceOffset - Offset to add to terrain height (in units)
  */
-function rasterizeTerrain3D(gridDensity, surfaceOffset = 0) {
+function rasterizeTerrain3D(gridDensity) {
   if (!state.heightmap) return null;
   
   const W = state.resizedWidth;
@@ -3059,9 +3075,9 @@ function rasterizeTerrain3D(gridDensity, surfaceOffset = 0) {
               const hmX = worldToHeightmapX(cornerX);
               const hmY = worldToHeightmapY(cornerY);
               const terrainHeight = bilinearSample(state.heightmap, W, H, hmX, hmY);
-              const terrainZ = (terrainHeight / 255.0) * maxHeight + surfaceOffset;
+              const terrainZ = (terrainHeight / 255.0) * maxHeight;
               
-              // Check if corner is below terrain (with offset)
+              // Check if corner is below terrain
               if (cornerZ >= terrainZ) {
                 allBelow = false;
                 break;
@@ -3081,10 +3097,17 @@ function rasterizeTerrain3D(gridDensity, surfaceOffset = 0) {
 }
 
 /**
- * Greedy mesh algorithm using iterative random approach
+ * Helper function to yield control to the browser
+ */
+function yieldToBrowser() {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+/**
+ * Greedy mesh algorithm using iterative random approach (async with cancellation)
  * Returns array of optimized blocks: { x, y, z, widthX, widthY, widthZ }
  */
-function greedyMesh(rasterData, iterations) {
+async function greedyMesh(rasterData, iterations) {
   if (!rasterData) return [];
   
   const { grid, gridSizeX, gridSizeY, gridSizeZ, gridDensity } = rasterData;
@@ -3103,6 +3126,9 @@ function greedyMesh(rasterData, iterations) {
   
   // Process each Z layer separately
   for (let z = 0; z < gridSizeZ; z++) {
+    // Check for cancellation
+    if (state.visMeshCancelled) break;
+    
     // Create a 2D mask for this layer (true = solid, false = empty)
     const layer = new Array(gridSizeX);
     for (let x = 0; x < gridSizeX; x++) {
@@ -3126,6 +3152,14 @@ function greedyMesh(rasterData, iterations) {
     
     // Try different seeds
     for (let iter = 0; iter < iterations; iter++) {
+      // Check for cancellation
+      if (state.visMeshCancelled) break;
+      
+      // Yield control periodically to allow UI updates and cancellation checks
+      if (iter % 10 === 0) {
+        await yieldToBrowser();
+      }
+      
       const seed = iter;
       const random = createSeededRandom(seed);
       const processed = new Array(gridSizeX);
@@ -3138,6 +3172,9 @@ function greedyMesh(rasterData, iterations) {
       
       // Process until all voxels are covered
       while (remainingVoxels.length > 0) {
+        // Check for cancellation
+        if (state.visMeshCancelled) break;
+        
         // Choose a random remaining voxel
         const randomIndex = Math.floor(random() * remainingVoxels.length);
         const startVoxel = remainingVoxels[randomIndex];
@@ -3231,7 +3268,7 @@ function greedyMesh(rasterData, iterations) {
         });
       }
       
-      // Store result for this seed
+      // Store result for this seed (even if cancelled, we keep what we have)
       if (!seedResults[z]) {
         seedResults[z] = [];
       }
@@ -3244,6 +3281,7 @@ function greedyMesh(rasterData, iterations) {
   }
   
   // Find the best seed for each layer (lowest block count)
+  // Use best result found so far, even if cancelled
   const allBlocks = [];
   for (let z = 0; z < gridSizeZ; z++) {
     if (!seedResults[z] || seedResults[z].length === 0) continue;
@@ -3283,7 +3321,10 @@ function generateVisBlocks() {
     return;
   }
   
-  // Show loading spinner
+  // Reset cancellation flag
+  state.visMeshCancelled = false;
+  
+  // Show loading spinner and cancel button
   if (el.generateVisBlocks) {
     el.generateVisBlocks.disabled = true;
   }
@@ -3293,63 +3334,72 @@ function generateVisBlocks() {
   if (el.generateVisBlocksSpinner) {
     el.generateVisBlocksSpinner.classList.remove('hidden');
   }
+  if (el.cancelVisBlocks) {
+    el.cancelVisBlocks.classList.remove('hidden');
+  }
   
   // Show loading state
   if (el.visOptimisationInfo) {
     el.visOptimisationInfo.textContent = 'Rasterizing terrain...';
   }
   
-  const surfaceOffset = parseFloat(el.visSurfaceOffset.value) || 0;
-  
   // Use setTimeout to allow UI to update
-  setTimeout(() => {
-    const rasterData = rasterizeTerrain3D(gridDensity, surfaceOffset);
+  setTimeout(async () => {
+    const rasterData = rasterizeTerrain3D(gridDensity);
     
     if (el.visOptimisationInfo) {
       el.visOptimisationInfo.textContent = `Running iterative optimization (${iterations} iterations)...`;
     }
     
-    setTimeout(() => {
-      const blocks = greedyMesh(rasterData, iterations);
-      state.visBlocks = blocks;
+    const blocks = await greedyMesh(rasterData, iterations);
+    state.visBlocks = blocks;
+    
+    // Hide loading spinner and cancel button
+    if (el.generateVisBlocksText) {
+      el.generateVisBlocksText.classList.remove('opacity-0');
+    }
+    if (el.generateVisBlocksSpinner) {
+      el.generateVisBlocksSpinner.classList.add('hidden');
+    }
+    if (el.generateVisBlocks) {
+      el.generateVisBlocks.disabled = false;
+    }
+    if (el.cancelVisBlocks) {
+      el.cancelVisBlocks.classList.add('hidden');
+    }
+    
+    // Update info display
+    if (el.visOptimisationInfo) {
+      const numTilesX = parseInt(el.tilesX.value, 10);
+      const numTilesY = parseInt(el.tilesY.value, 10);
+      const tileSize = parseInt(el.tileSize.value, 10);
+      const totalWidth = numTilesX * tileSize;
+      const totalDepth = numTilesY * tileSize;
+      const maxHeight = parseInt(el.maxHeight.value, 10);
       
-      // Hide loading spinner
-      if (el.generateVisBlocksText) {
-        el.generateVisBlocksText.classList.remove('opacity-0');
-      }
-      if (el.generateVisBlocksSpinner) {
-        el.generateVisBlocksSpinner.classList.add('hidden');
-      }
-      if (el.generateVisBlocks) {
-        el.generateVisBlocks.disabled = false;
-      }
+      const gridSizeX = Math.ceil(totalWidth / gridDensity);
+      const gridSizeY = Math.ceil(totalDepth / gridDensity);
+      const gridSizeZ = Math.ceil(maxHeight / gridDensity);
+      const totalCells = gridSizeX * gridSizeY * gridSizeZ;
       
-      // Update info display
-      if (el.visOptimisationInfo) {
-        const numTilesX = parseInt(el.tilesX.value, 10);
-        const numTilesY = parseInt(el.tilesY.value, 10);
-        const tileSize = parseInt(el.tileSize.value, 10);
-        const totalWidth = numTilesX * tileSize;
-        const totalDepth = numTilesY * tileSize;
-        const maxHeight = parseInt(el.maxHeight.value, 10);
-        
-        const gridSizeX = Math.ceil(totalWidth / gridDensity);
-        const gridSizeY = Math.ceil(totalDepth / gridDensity);
-        const gridSizeZ = Math.ceil(maxHeight / gridDensity);
-        const totalCells = gridSizeX * gridSizeY * gridSizeZ;
-        
-        el.visOptimisationInfo.textContent = 
-          `Grid Density: ${gridDensity} units\n` +
-          `Grid Size: ${gridSizeX} x ${gridSizeY} x ${gridSizeZ}\n` +
-          `Total Cells: ${totalCells}\n` +
-          `Optimized Blocks: ${blocks.length}\n` +
-          `Reduction: ${((1 - blocks.length / totalCells) * 100).toFixed(1)}%`;
-      }
+      const cancelledText = state.visMeshCancelled ? ' (Cancelled - using best result so far)' : '';
       
-      // Re-render preview to show blocks
-      if (state.heightmap) render3DPreview();
-    }, 10);
+      el.visOptimisationInfo.textContent = 
+        `Grid Density: ${gridDensity} units\n` +
+        `Grid Size: ${gridSizeX} x ${gridSizeY} x ${gridSizeZ}\n` +
+        `Total Cells: ${totalCells}\n` +
+        `Optimized Blocks: ${blocks.length}\n` +
+        `Reduction: ${((1 - blocks.length / totalCells) * 100).toFixed(1)}%${cancelledText}`;
+    }
+    
+    // Re-render preview to show blocks
+    if (state.heightmap) render3DPreview();
   }, 10);
+}
+
+// Cancel vis blocks generation
+function cancelVisBlocks() {
+  state.visMeshCancelled = true;
 }
 
 // ------------------------ Tab Switching ------------------------
@@ -3462,12 +3512,42 @@ function setupInputCounter(inputId) {
 // Setup counters for all number inputs
 setupInputCounter('tilesX');
 setupInputCounter('tilesY');
-setupInputCounter('tileSize');
-setupInputCounter('maxHeight');
-setupInputCounter('skyboxTopOffset');
-setupInputCounter('visGridDensity');
-setupInputCounter('visIterations');
-setupInputCounter('visSurfaceOffset');
+
+// Custom setup for inputs that double/halve values
+function setupVisInputCounter(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  
+  const decrementBtn = document.querySelector(`[data-input-counter-decrement="${inputId}"]`);
+  const incrementBtn = document.querySelector(`[data-input-counter-increment="${inputId}"]`);
+  
+  if (decrementBtn) {
+    decrementBtn.addEventListener('click', () => {
+      const min = parseInt(input.min) || 1;
+      const current = parseInt(input.value) || min;
+      const newValue = Math.max(min, Math.floor(current / 2));
+      input.value = newValue;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  
+  if (incrementBtn) {
+    incrementBtn.addEventListener('click', () => {
+      const max = parseInt(input.max) || Infinity;
+      const current = parseInt(input.value) || 1;
+      const newValue = Math.min(max, current * 2);
+      input.value = newValue;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+}
+
+// Apply double/halve behavior to these inputs
+setupVisInputCounter('tileSize');
+setupVisInputCounter('maxHeight');
+setupVisInputCounter('skyboxTopOffset');
+setupVisInputCounter('visGridDensity');
+setupVisInputCounter('visIterations');
 
 // ------------------------ Mask Events ------------------------
 function updateBrushModeButtons() {
@@ -3593,9 +3673,14 @@ function openMaskGeneratorPanel(type) {
         for (let i = 0; i < W * H; i++) {
           state.previewMask[i] = Math.min(255, (state.mask && state.mask[i] ? state.mask[i] : 0) + generatedMask[i]);
         }
-      } else { // subtract
+      } else if (mode === 'subtract') {
         for (let i = 0; i < W * H; i++) {
           state.previewMask[i] = Math.max(0, (state.mask && state.mask[i] ? state.mask[i] : 0) - generatedMask[i]);
+        }
+      } else if (mode === 'intersect') {
+        for (let i = 0; i < W * H; i++) {
+          const base = state.mask && state.mask[i] ? state.mask[i] : 0;
+          state.previewMask[i] = Math.min(base, generatedMask[i]);
         }
       }
       
@@ -3729,9 +3814,14 @@ function setupSlopeRangeSlider() {
         for (let i = 0; i < W * H; i++) {
           state.previewMask[i] = Math.min(255, (state.mask && state.mask[i] ? state.mask[i] : 0) + generatedMask[i]);
         }
-      } else { // subtract
+      } else if (mode === 'subtract') {
         for (let i = 0; i < W * H; i++) {
           state.previewMask[i] = Math.max(0, (state.mask && state.mask[i] ? state.mask[i] : 0) - generatedMask[i]);
+        }
+      } else if (mode === 'intersect') {
+        for (let i = 0; i < W * H; i++) {
+          const base = state.mask && state.mask[i] ? state.mask[i] : 0;
+          state.previewMask[i] = Math.min(base, generatedMask[i]);
         }
       }
       
@@ -3948,9 +4038,14 @@ function updateNoisePreview(force = false) {
     for (let i = 0; i < W * H; i++) {
       state.previewMask[i] = Math.min(255, (state.mask && state.mask[i] ? state.mask[i] : 0) + generatedMask[i]);
     }
-  } else { // subtract
+  } else if (mode === 'subtract') {
     for (let i = 0; i < W * H; i++) {
       state.previewMask[i] = Math.max(0, (state.mask && state.mask[i] ? state.mask[i] : 0) - generatedMask[i]);
+    }
+  } else if (mode === 'intersect') {
+    for (let i = 0; i < W * H; i++) {
+      const base = state.mask && state.mask[i] ? state.mask[i] : 0;
+      state.previewMask[i] = Math.min(base, generatedMask[i]);
     }
   }
   
@@ -4018,8 +4113,10 @@ function updateErosionPreview(force = false) {
     const base = hasBaseMask ? state.mask[i] : 0;
     if (mode === 'add') {
       state.previewMask[i] = Math.min(255, base + generatedMask[i]);
-    } else {
+    } else if (mode === 'subtract') {
       state.previewMask[i] = Math.max(0, base - generatedMask[i]);
+    } else if (mode === 'intersect') {
+      state.previewMask[i] = Math.min(base, generatedMask[i]);
     }
   }
 
@@ -4408,9 +4505,13 @@ if (applySlopeMask) {
       for (let i = 0; i < W * H; i++) {
         state.mask[i] = Math.min(255, state.mask[i] + generatedMask[i]);
       }
-    } else { // subtract
+    } else if (mode === 'subtract') {
       for (let i = 0; i < W * H; i++) {
         state.mask[i] = Math.max(0, state.mask[i] - generatedMask[i]);
+      }
+    } else if (mode === 'intersect') {
+      for (let i = 0; i < W * H; i++) {
+        state.mask[i] = Math.min(state.mask[i], generatedMask[i]);
       }
     }
     
@@ -4419,6 +4520,7 @@ if (applySlopeMask) {
     
     render3DPreview();
     closeMaskGeneratorPanel();
+    updateExportMaskButton();
   });
 }
 
@@ -4475,9 +4577,13 @@ if (applyNoiseMask) {
       for (let i = 0; i < W * H; i++) {
         state.mask[i] = Math.min(255, state.mask[i] + generatedMask[i]);
       }
-    } else { // subtract
+    } else if (mode === 'subtract') {
       for (let i = 0; i < W * H; i++) {
         state.mask[i] = Math.max(0, state.mask[i] - generatedMask[i]);
+      }
+    } else if (mode === 'intersect') {
+      for (let i = 0; i < W * H; i++) {
+        state.mask[i] = Math.min(state.mask[i], generatedMask[i]);
       }
     }
     
@@ -4486,6 +4592,7 @@ if (applyNoiseMask) {
     
     render3DPreview();
     closeMaskGeneratorPanel();
+    updateExportMaskButton();
   });
 }
 
@@ -4518,15 +4625,20 @@ if (applyHeightMask) {
       for (let i = 0; i < generatedMask.length; i++) {
         state.mask[i] = Math.min(255, state.mask[i] + generatedMask[i]);
       }
-    } else {
+    } else if (mode === 'subtract') {
       for (let i = 0; i < generatedMask.length; i++) {
         state.mask[i] = Math.max(0, state.mask[i] - generatedMask[i]);
+      }
+    } else if (mode === 'intersect') {
+      for (let i = 0; i < generatedMask.length; i++) {
+        state.mask[i] = Math.min(state.mask[i], generatedMask[i]);
       }
     }
     
     saveMaskState();
     render3DPreview();
     closeMaskGeneratorPanel();
+    updateExportMaskButton();
   });
 }
 
@@ -4558,15 +4670,20 @@ if (applyErosionMask) {
       for (let i = 0; i < W * H; i++) {
         state.mask[i] = Math.min(255, state.mask[i] + maskData[i]);
       }
-    } else {
+    } else if (mode === 'subtract') {
       for (let i = 0; i < W * H; i++) {
         state.mask[i] = Math.max(0, state.mask[i] - maskData[i]);
+      }
+    } else if (mode === 'intersect') {
+      for (let i = 0; i < W * H; i++) {
+        state.mask[i] = Math.min(state.mask[i], maskData[i]);
       }
     }
 
     saveMaskState();
     render3DPreview();
     closeMaskGeneratorPanel();
+    updateExportMaskButton();
   });
 }
 
@@ -4647,13 +4764,80 @@ if (el.clearMask) el.clearMask.addEventListener('click', () => {
   if (state.mask) state.mask.fill(0);
   saveMaskState(); // Save state after clearing (so clear can be undone in one step)
   render3DPreview();
+  updateExportMaskButton();
 });
+
+// Export mask as PNG
+function exportMaskAsPNG() {
+  if (!state.mask || !state.resizedWidth || !state.resizedHeight) {
+    alert('No mask to export. Please create a mask first.');
+    return;
+  }
+
+  const W = state.resizedWidth;
+  const H = state.resizedHeight;
+  
+  // Create canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  
+  // Create ImageData
+  const imageData = ctx.createImageData(W, H);
+  const data = imageData.data;
+  
+  // Convert Float32Array mask to ImageData (grayscale)
+  for (let i = 0; i < W * H; i++) {
+    const value = Math.round(state.mask[i]);
+    const idx = i * 4;
+    data[idx] = value;     // R
+    data[idx + 1] = value; // G
+    data[idx + 2] = value; // B
+    data[idx + 3] = 255;   // A
+  }
+  
+  // Draw to canvas
+  ctx.putImageData(imageData, 0, 0);
+  
+  // Convert to blob and download
+  canvas.toBlob((blob) => {
+    if (!blob) {
+      alert('Failed to export mask.');
+      return;
+    }
+    
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'mask.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
+// Update export mask button state
+function updateExportMaskButton() {
+  if (el.exportMask) {
+    const hasMask = state.mask && state.resizedWidth && state.resizedHeight;
+    el.exportMask.disabled = !hasMask;
+  }
+}
+
+if (el.exportMask) {
+  el.exportMask.addEventListener('click', exportMaskAsPNG);
+}
 
 if (el.maskBlendAdd) {
   el.maskBlendAdd.addEventListener('click', () => applyPendingMaskImport('add'));
 }
 if (el.maskBlendSubtract) {
   el.maskBlendSubtract.addEventListener('click', () => applyPendingMaskImport('subtract'));
+}
+if (el.maskBlendIntersect) {
+  el.maskBlendIntersect.addEventListener('click', () => applyPendingMaskImport('intersect'));
 }
 if (el.maskBlendOverride) {
   el.maskBlendOverride.addEventListener('click', () => applyPendingMaskImport('override'));
@@ -4743,9 +4927,14 @@ if (slopeMaskMode) {
         for (let i = 0; i < W * H; i++) {
           state.previewMask[i] = Math.min(255, (state.mask && state.mask[i] ? state.mask[i] : 0) + generatedMask[i]);
         }
-      } else { // subtract
+      } else if (mode === 'subtract') {
         for (let i = 0; i < W * H; i++) {
           state.previewMask[i] = Math.max(0, (state.mask && state.mask[i] ? state.mask[i] : 0) - generatedMask[i]);
+        }
+      } else if (mode === 'intersect') {
+        for (let i = 0; i < W * H; i++) {
+          const base = state.mask && state.mask[i] ? state.mask[i] : 0;
+          state.previewMask[i] = Math.min(base, generatedMask[i]);
         }
       }
       
@@ -4798,9 +4987,14 @@ if (slopeMaskInvert) {
         for (let i = 0; i < W * H; i++) {
           state.previewMask[i] = Math.min(255, (state.mask && state.mask[i] ? state.mask[i] : 0) + generatedMask[i]);
         }
-      } else { // subtract
+      } else if (mode === 'subtract') {
         for (let i = 0; i < W * H; i++) {
           state.previewMask[i] = Math.max(0, (state.mask && state.mask[i] ? state.mask[i] : 0) - generatedMask[i]);
+        }
+      } else if (mode === 'intersect') {
+        for (let i = 0; i < W * H; i++) {
+          const base = state.mask && state.mask[i] ? state.mask[i] : 0;
+          state.previewMask[i] = Math.min(base, generatedMask[i]);
         }
       }
       
