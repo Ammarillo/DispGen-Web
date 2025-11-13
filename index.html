@@ -12,7 +12,7 @@
       <aside class="w-full border-r border-slate-800 bg-slate-950/80 px-6 py-4 lg:w-96 lg:overflow-y-auto">
         <div class="space-y-6">
           <header class="space-y-2">
-            <img src="src/DispGen_Source.png" alt="DispGen Terrain Map Generator" class="w-full" />
+            <img src="src/DispGen_Source.png" alt="DispGen Terrain Map Generator" class="w-full" style="filter: brightness(0.9);"/>
           </header>
 
           <!-- Tab Navigation -->
@@ -33,134 +33,157 @@
 
           <!-- Terrain Tab -->
           <div id="tabContentTerrain" class="tab-content space-y-6">
-            <section class="space-y-3">
-              <label for="heightmapInput" class="block text-xs uppercase tracking-wide text-slate-400">
-                Heightmap
-              </label>
-              <input
-                id="heightmapInput"
-                type="file"
-                accept="image/*"
-                class="block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-indigo-500/40 focus:outline-none focus:ring-0 focus:border-slate-800 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-600/20 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-100 hover:file:bg-indigo-600/30"
-              />
-            </section>
-
-            <section class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tiles X</label>
-                <div class="relative flex items-center max-w-full">
-                  <button type="button" data-input-counter-decrement="tilesX" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
-                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
-                    </svg>
-                  </button>
-                  <input type="number" id="tilesX" min="1" max="256" value="32" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
-                  <button type="button" data-input-counter-increment="tilesX" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
-                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tiles Y</label>
-                <div class="relative flex items-center max-w-full">
-                  <button type="button" data-input-counter-decrement="tilesY" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
-                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
-                    </svg>
-                  </button>
-                  <input type="number" id="tilesY" min="1" max="256" value="32" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
-                  <button type="button" data-input-counter-increment="tilesY" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
-                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tile Size (units)</label>
-                <div class="relative flex items-center max-w-full">
-                  <button type="button" data-input-counter-decrement="tileSize" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
-                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
-                    </svg>
-                  </button>
-                  <input type="number" id="tileSize" min="1" max="10000" value="512" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
-                  <button type="button" data-input-counter-increment="tileSize" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
-                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Max Height (units)</label>
-                <div class="relative flex items-center max-w-full">
-                  <button type="button" data-input-counter-decrement="maxHeight" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
-                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
-                    </svg>
-                  </button>
-                  <input type="number" id="maxHeight" min="1" max="10000" value="2048" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
-                  <button type="button" data-input-counter-increment="maxHeight" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
-                    <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section class="space-y-3">
-              <div>
-                <label class="text-xs uppercase tracking-wide text-slate-400">Disp Power</label>
-                <select id="dispPower" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
-                  <option value="2">2</option>
-                  <option value="3" selected>3</option>
-                  <option value="4">4</option>
-                </select>
-              </div>
-            </section>
-
-            <!-- Auto Update Preview removed: always-on behavior is enforced in code -->
-            <div class="flex flex-row gap-3">
-              <div class="flex-1 flex items-center">
-                <label class="flex items-center gap-3 w-full rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer mb-0">
-                  <span>Show Tiles</span>
-                  <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
-                    <input id="showGrid" type="checkbox" class="sr-only peer" />
-                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
-                  </div>
+            <!-- Normal Terrain Settings (shown when not in edit mode) -->
+            <div id="terrainNormalMode" class="space-y-6">
+              <section class="space-y-3">
+                <label for="heightmapInput" class="block text-xs uppercase tracking-wide text-slate-400">
+                  Heightmap
                 </label>
-              </div>
-              <div class="flex-1 flex items-center">
-                <label class="flex items-center gap-3 w-full rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer mb-0">
-                  <span>Show Border</span>
-                  <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
-                    <input id="showMaxBounds" type="checkbox" class="sr-only peer" />
-                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+                <input
+                  id="heightmapInput"
+                  type="file"
+                  accept="image/*"
+                  class="block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-indigo-500/40 focus:outline-none focus:ring-0 focus:border-slate-800 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-600/20 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-100 hover:file:bg-indigo-600/30"
+                />
+              </section>
+
+              <section class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tiles X</label>
+                  <div class="relative flex items-center max-w-full">
+                    <button type="button" data-input-counter-decrement="tilesX" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                      <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                      </svg>
+                    </button>
+                    <input type="number" id="tilesX" min="1" max="256" value="32" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                    <button type="button" data-input-counter-increment="tilesX" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                      <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                      </svg>
+                    </button>
                   </div>
-                </label>
+                </div>
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tiles Y</label>
+                  <div class="relative flex items-center max-w-full">
+                    <button type="button" data-input-counter-decrement="tilesY" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                      <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                      </svg>
+                    </button>
+                    <input type="number" id="tilesY" min="1" max="256" value="32" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                    <button type="button" data-input-counter-increment="tilesY" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                      <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Tile Size (units)</label>
+                  <div class="relative flex items-center max-w-full">
+                    <button type="button" data-input-counter-decrement="tileSize" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                      <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                      </svg>
+                    </button>
+                    <input type="number" id="tileSize" min="1" max="10000" value="512" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                    <button type="button" data-input-counter-increment="tileSize" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                      <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400 mb-1 block">Max Height (units)</label>
+                  <div class="relative flex items-center max-w-full">
+                    <button type="button" data-input-counter-decrement="maxHeight" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-s-lg p-2 h-9 focus:outline-none">
+                      <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                      </svg>
+                    </button>
+                    <input type="number" id="maxHeight" min="1" max="10000" value="2048" class="bg-slate-900/70 border-x-0 border-slate-700 h-9 text-center text-slate-100 text-sm focus:outline-none block w-full py-2.5" />
+                    <button type="button" data-input-counter-increment="maxHeight" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-e-lg p-2 h-9 focus:outline-none">
+                      <svg class="w-3 h-3 text-slate-100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="space-y-3">
+                <div>
+                  <label class="text-xs uppercase tracking-wide text-slate-400">Disp Power</label>
+                  <select id="dispPower" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:outline-none">
+                    <option value="2">2</option>
+                    <option value="3" selected>3</option>
+                    <option value="4">4</option>
+                  </select>
+                </div>
+              </section>
+
+              <!-- Auto Update Preview removed: always-on behavior is enforced in code -->
+              <div class="flex flex-row gap-3">
+                <div class="flex-1 flex items-center">
+                  <label class="flex items-center gap-3 w-full rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer mb-0">
+                    <span>Show Tiles</span>
+                    <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+                      <input id="showGrid" type="checkbox" class="sr-only peer" />
+                      <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+                    </div>
+                  </label>
+                </div>
+                <div class="flex-1 flex items-center">
+                  <label class="flex items-center gap-3 w-full rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3 text-sm text-slate-300 cursor-pointer mb-0">
+                    <span>Show Border</span>
+                    <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-slate-700 transition-colors has-[:checked]:bg-indigo-500 focus-within:outline-none">
+                      <input id="showMaxBounds" type="checkbox" class="sr-only peer" />
+                      <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1 peer-checked:translate-x-6"></span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+              </section>
+
+              <section class="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs text-slate-300">
+                <h2 class="text-sm font-semibold text-slate-200">World Dimensions</h2>
+                <pre id="dimensions" class="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-slate-400"></pre>
+              </section>
+
+              <div class="space-y-3">
+                <button id="editTerrainBtn" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500" disabled>
+                  Edit Terrain
+                </button>
+                <button hidden id="previewBtn" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500" disabled>
+                  Preview 3D
+                </button>
+                <button class="generate-vmf-btn w-full rounded-lg border border-indigo-500/60 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 shadow-sm transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500" disabled>
+                  Generate VMF
+                </button>
               </div>
             </div>
-            </section>
 
-            <section class="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs text-slate-300">
-              <h2 class="text-sm font-semibold text-slate-200">World Dimensions</h2>
-              <pre id="dimensions" class="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-slate-400"></pre>
-            </section>
+            <!-- Terrain Edit Mode (shown when in edit mode) -->
+            <div id="terrainEditMode" class="hidden space-y-6">
+              <section class="space-y-3">
+                <h2 class="text-sm font-semibold text-slate-200">Terrain Editor</h2>
+                <div class="grid grid-cols-2 gap-3">
+                  <button id="terrainEditBlurBtn" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Blur</button>
+                  <button id="terrainEditErosionBtn" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Erosion</button>
+                </div>
+              </section>
 
-            <div class="space-y-3">
-              <button id="editTerrainBtn" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500" disabled>
-                Edit Terrain
-              </button>
-              <button hidden id="previewBtn" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500" disabled>
-                Preview 3D
-              </button>
-              <button class="generate-vmf-btn w-full rounded-lg border border-indigo-500/60 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 shadow-sm transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500" disabled>
-                Generate VMF
-              </button>
+              <div class="space-y-3">
+                <button id="exitTerrainEditBtn" class="w-full rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/20">
+                  Exit Edit Mode
+                </button>
+                <button class="generate-vmf-btn w-full rounded-lg border border-indigo-500/60 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 shadow-sm transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500" disabled>
+                  Generate VMF
+                </button>
+              </div>
             </div>
           </div>
 
@@ -929,12 +952,6 @@ Click "Generate Vis Blocks" to start.</pre>
             </div>
           </div>
           <button id="applyErosionTerrain" class="w-full rounded-lg border border-indigo-500 bg-indigo-500/20 px-4 py-2 text-sm font-medium text-indigo-200 hover:bg-indigo-500/30 transition">Apply Erosion</button>
-        </div>
-
-        <!-- Effect Selection Buttons -->
-        <div class="grid grid-cols-2 gap-3 border-t border-slate-800 pt-4">
-          <button id="selectBlurTerrain" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Blur</button>
-          <button id="selectErosionTerrain" class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-200 hover:border-indigo-500 hover:text-white">Erosion</button>
         </div>
       </div>
     </div>

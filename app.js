@@ -81,13 +81,16 @@ const el = {
   showVisBlocks: document.getElementById('showVisBlocks'),
   // Terrain editor elements
   editTerrainBtn: document.getElementById('editTerrainBtn'),
+  terrainNormalMode: document.getElementById('terrainNormalMode'),
+  terrainEditMode: document.getElementById('terrainEditMode'),
+  terrainEditBlurBtn: document.getElementById('terrainEditBlurBtn'),
+  terrainEditErosionBtn: document.getElementById('terrainEditErosionBtn'),
+  exitTerrainEditBtn: document.getElementById('exitTerrainEditBtn'),
   terrainEditorPanel: document.getElementById('terrainEditorPanel'),
   terrainEditorTitle: document.getElementById('terrainEditorTitle'),
   closeTerrainEditor: document.getElementById('closeTerrainEditor'),
   blurTerrainPanel: document.getElementById('blurTerrainPanel'),
   erosionTerrainPanel: document.getElementById('erosionTerrainPanel'),
-  selectBlurTerrain: document.getElementById('selectBlurTerrain'),
-  selectErosionTerrain: document.getElementById('selectErosionTerrain'),
   blurRadius: document.getElementById('blurRadius'),
   blurRadiusValue: document.getElementById('blurRadiusValue'),
   blurIterations: document.getElementById('blurIterations'),
@@ -618,8 +621,8 @@ function createHeightGradientStop(position, value) {
 function ensureHeightGradientState() {
   if (!Array.isArray(state.heightGradientStops) || state.heightGradientStops.length < 2) {
     state.heightGradientStops = [
-      createHeightGradientStop(0, 0),
-      createHeightGradientStop(1, 1)
+      createHeightGradientStop(0, 1),
+      createHeightGradientStop(1, 0)
     ];
   } else {
     state.heightGradientStops = state.heightGradientStops.map((stop) => ({
@@ -870,8 +873,8 @@ function addHeightGradientStop(position = null) {
 
 function resetHeightGradientStops() {
   state.heightGradientStops = [
-    createHeightGradientStop(0, 0),
-    createHeightGradientStop(1, 1)
+    createHeightGradientStop(0, 1),
+    createHeightGradientStop(1, 0)
   ];
   ensureHeightGradientState();
   state.heightSelectedStopId = state.heightGradientStops[0]?.id ?? null;
@@ -3549,6 +3552,11 @@ function switchTab(tabName) {
     return;
   }
   
+  // Exit terrain edit mode when switching away from terrain tab
+  if (tabName !== 'terrain') {
+    exitTerrainEditMode();
+  }
+  
   // Reset all tabs
   [tabTerrain, tabMaterial, tabSkybox, tabVisOptimisation].forEach(tab => {
     if (tab) {
@@ -5261,6 +5269,9 @@ function applyBlurTerrain() {
   
   render3DPreview();
   clearMaskIfModified(); // Clear mask since terrain changed
+  
+  // Close the panel after applying
+  closeTerrainEditorPanel();
 }
 
 // Erosion effect - reuse existing erosion code but apply to heightmap
@@ -5463,29 +5474,51 @@ function applyErosionTerrain() {
   
   render3DPreview();
   clearMaskIfModified(); // Clear mask since terrain changed
+  
+  // Close the panel after applying
+  closeTerrainEditorPanel();
+}
+
+// Terrain edit mode toggle functions
+function enterTerrainEditMode() {
+  if (el.terrainNormalMode) el.terrainNormalMode.classList.add('hidden');
+  if (el.terrainEditMode) el.terrainEditMode.classList.remove('hidden');
+}
+
+function exitTerrainEditMode() {
+  if (el.terrainNormalMode) el.terrainNormalMode.classList.remove('hidden');
+  if (el.terrainEditMode) el.terrainEditMode.classList.add('hidden');
+  // Close the terrain editor panel if open
+  closeTerrainEditorPanel();
 }
 
 // Terrain editor event listeners
 if (el.editTerrainBtn) {
   el.editTerrainBtn.addEventListener('click', () => {
+    enterTerrainEditMode();
+  });
+}
+
+if (el.exitTerrainEditBtn) {
+  el.exitTerrainEditBtn.addEventListener('click', () => {
+    exitTerrainEditMode();
+  });
+}
+
+if (el.terrainEditBlurBtn) {
+  el.terrainEditBlurBtn.addEventListener('click', () => {
     openTerrainEditorPanel('blur');
+  });
+}
+
+if (el.terrainEditErosionBtn) {
+  el.terrainEditErosionBtn.addEventListener('click', () => {
+    openTerrainEditorPanel('erosion');
   });
 }
 
 if (el.closeTerrainEditor) {
   el.closeTerrainEditor.addEventListener('click', closeTerrainEditorPanel);
-}
-
-if (el.selectBlurTerrain) {
-  el.selectBlurTerrain.addEventListener('click', () => {
-    openTerrainEditorPanel('blur');
-  });
-}
-
-if (el.selectErosionTerrain) {
-  el.selectErosionTerrain.addEventListener('click', () => {
-    openTerrainEditorPanel('erosion');
-  });
 }
 
 // Blur controls
