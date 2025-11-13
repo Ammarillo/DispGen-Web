@@ -78,7 +78,43 @@ const el = {
   generateVisBlocksText: document.getElementById('generateVisBlocksText'),
   generateVisBlocksSpinner: document.getElementById('generateVisBlocksSpinner'),
   cancelVisBlocks: document.getElementById('cancelVisBlocks'),
-  showVisBlocks: document.getElementById('showVisBlocks')
+  showVisBlocks: document.getElementById('showVisBlocks'),
+  // Terrain editor elements
+  editTerrainBtn: document.getElementById('editTerrainBtn'),
+  terrainEditorPanel: document.getElementById('terrainEditorPanel'),
+  terrainEditorTitle: document.getElementById('terrainEditorTitle'),
+  closeTerrainEditor: document.getElementById('closeTerrainEditor'),
+  blurTerrainPanel: document.getElementById('blurTerrainPanel'),
+  erosionTerrainPanel: document.getElementById('erosionTerrainPanel'),
+  selectBlurTerrain: document.getElementById('selectBlurTerrain'),
+  selectErosionTerrain: document.getElementById('selectErosionTerrain'),
+  blurRadius: document.getElementById('blurRadius'),
+  blurRadiusValue: document.getElementById('blurRadiusValue'),
+  blurIterations: document.getElementById('blurIterations'),
+  blurIterationsValue: document.getElementById('blurIterationsValue'),
+  applyBlurTerrain: document.getElementById('applyBlurTerrain'),
+  erosionTerrainSeed: document.getElementById('erosionTerrainSeed'),
+  erosionTerrainDroplets: document.getElementById('erosionTerrainDroplets'),
+  erosionTerrainDropletsValue: document.getElementById('erosionTerrainDropletsValue'),
+  erosionTerrainMaxSteps: document.getElementById('erosionTerrainMaxSteps'),
+  erosionTerrainMaxStepsValue: document.getElementById('erosionTerrainMaxStepsValue'),
+  erosionTerrainRadius: document.getElementById('erosionTerrainRadius'),
+  erosionTerrainRadiusValue: document.getElementById('erosionTerrainRadiusValue'),
+  erosionTerrainInertia: document.getElementById('erosionTerrainInertia'),
+  erosionTerrainInertiaValue: document.getElementById('erosionTerrainInertiaValue'),
+  erosionTerrainCapacity: document.getElementById('erosionTerrainCapacity'),
+  erosionTerrainCapacityValue: document.getElementById('erosionTerrainCapacityValue'),
+  erosionTerrainDeposition: document.getElementById('erosionTerrainDeposition'),
+  erosionTerrainDepositionValue: document.getElementById('erosionTerrainDepositionValue'),
+  erosionTerrainErosionRate: document.getElementById('erosionTerrainErosionRate'),
+  erosionTerrainErosionRateValue: document.getElementById('erosionTerrainErosionRateValue'),
+  erosionTerrainEvaporation: document.getElementById('erosionTerrainEvaporation'),
+  erosionTerrainEvaporationValue: document.getElementById('erosionTerrainEvaporationValue'),
+  erosionTerrainGravity: document.getElementById('erosionTerrainGravity'),
+  erosionTerrainGravityValue: document.getElementById('erosionTerrainGravityValue'),
+  erosionTerrainMinSlope: document.getElementById('erosionTerrainMinSlope'),
+  erosionTerrainMinSlopeValue: document.getElementById('erosionTerrainMinSlopeValue'),
+  applyErosionTerrain: document.getElementById('applyErosionTerrain')
 };
 
 // ---------------------------------------------------------------------------
@@ -141,6 +177,7 @@ const state = {
   resizedWidth: 0,
   resizedHeight: 0,
   heightmap: null,               // Float32Array of grayscale [h*w]
+  previewHeightmap: null,        // Float32Array [h*w], temporary preview heightmap for terrain editing
   mask: null,                    // Float32Array [h*w], values 0..255
   previewMask: null,             // Float32Array [h*w], temporary preview mask
   isPainting: false,
@@ -2933,6 +2970,10 @@ el.heightmapInput.addEventListener('change', async (e) => {
     if (el.generateVisBlocks) {
       el.generateVisBlocks.disabled = false;
     }
+    // Enable terrain editor button
+    if (el.editTerrainBtn) {
+      el.editTerrainBtn.disabled = false;
+    }
     updateTabStates(); // Enable Material, Skybox, and Visibility tabs
     render3DPreview();
     updateSkyboxInfoDisplay();
@@ -5089,6 +5130,411 @@ if (noiseMaskInvert) {
   noiseMaskInvert.addEventListener('change', () => {
     updateNoisePreview();
   });
+}
+
+// ------------------------ Terrain Editor Panel ------------------------
+let terrainEditorPreSnapshotSaved = false;
+
+function openTerrainEditorPanel(type) {
+  if (!el.terrainEditorPanel) return;
+  el.terrainEditorPanel.classList.remove('translate-x-full');
+  
+  // Initialize preview heightmap
+  if (state.heightmap) {
+    const W = state.resizedWidth, H = state.resizedHeight;
+    if (!state.previewHeightmap || state.previewHeightmap.length !== W * H) {
+      state.previewHeightmap = new Float32Array(W * H);
+      // Copy current heightmap to preview
+      state.previewHeightmap.set(state.heightmap);
+    }
+  }
+  
+  if (type === 'blur') {
+    el.terrainEditorTitle.textContent = 'Blur Terrain';
+    el.blurTerrainPanel.classList.remove('hidden');
+    el.erosionTerrainPanel.classList.add('hidden');
+    updateBlurTerrainPreview();
+  } else if (type === 'erosion') {
+    el.terrainEditorTitle.textContent = 'Erosion Terrain';
+    el.blurTerrainPanel.classList.add('hidden');
+    el.erosionTerrainPanel.classList.remove('hidden');
+    updateErosionTerrainPreview();
+  }
+}
+
+function closeTerrainEditorPanel() {
+  if (!el.terrainEditorPanel) return;
+  el.terrainEditorPanel.classList.add('translate-x-full');
+  // Reset preview heightmap
+  if (state.previewHeightmap && state.heightmap) {
+    state.previewHeightmap.set(state.heightmap);
+    render3DPreview();
+  }
+  terrainEditorPreSnapshotSaved = false;
+}
+
+// Blur effect implementation
+function applyBlurToHeightmap(heightmap, W, H, radius, iterations) {
+  const result = new Float32Array(heightmap);
+  
+  for (let iter = 0; iter < iterations; iter++) {
+    const temp = new Float32Array(result);
+    const kernelSize = radius * 2 + 1;
+    const kernel = new Float32Array(kernelSize);
+    let kernelSum = 0;
+    
+    // Create Gaussian kernel
+    const sigma = radius / 3;
+    for (let i = 0; i < kernelSize; i++) {
+      const x = i - radius;
+      const value = Math.exp(-(x * x) / (2 * sigma * sigma));
+      kernel[i] = value;
+      kernelSum += value;
+    }
+    // Normalize kernel
+    for (let i = 0; i < kernelSize; i++) {
+      kernel[i] /= kernelSum;
+    }
+    
+    // Horizontal blur
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let sum = 0;
+        for (let kx = -radius; kx <= radius; kx++) {
+          const px = Math.max(0, Math.min(W - 1, x + kx));
+          sum += temp[y * W + px] * kernel[kx + radius];
+        }
+        result[y * W + x] = sum;
+      }
+    }
+    
+    // Vertical blur
+    const temp2 = new Float32Array(result);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let sum = 0;
+        for (let ky = -radius; ky <= radius; ky++) {
+          const py = Math.max(0, Math.min(H - 1, y + ky));
+          sum += temp2[py * W + x] * kernel[ky + radius];
+        }
+        result[y * W + x] = sum;
+      }
+    }
+  }
+  
+  return result;
+}
+
+function updateBlurTerrainPreview() {
+  if (!state.heightmap || !state.previewHeightmap) return;
+  const W = state.resizedWidth, H = state.resizedHeight;
+  const radius = parseInt(el.blurRadius?.value || 3, 10);
+  const iterations = parseInt(el.blurIterations?.value || 1, 10);
+  
+  const blurred = applyBlurToHeightmap(state.heightmap, W, H, radius, iterations);
+  state.previewHeightmap.set(blurred);
+  
+  // Temporarily use preview heightmap for rendering
+  const original = state.heightmap;
+  state.heightmap = state.previewHeightmap;
+  render3DPreview();
+  state.heightmap = original;
+}
+
+function applyBlurTerrain() {
+  if (!state.heightmap || !state.previewHeightmap) return;
+  const W = state.resizedWidth, H = state.resizedHeight;
+  const radius = parseInt(el.blurRadius?.value || 3, 10);
+  const iterations = parseInt(el.blurIterations?.value || 1, 10);
+  
+  // Save snapshot before applying
+  if (!terrainEditorPreSnapshotSaved) {
+    terrainEditorPreSnapshotSaved = true;
+  }
+  
+  const blurred = applyBlurToHeightmap(state.heightmap, W, H, radius, iterations);
+  state.heightmap.set(blurred);
+  state.previewHeightmap.set(blurred);
+  
+  // Don't call resizeHeightmapImage() as it would regenerate from original image
+  // The heightmap is already updated with the blur
+  
+  render3DPreview();
+  clearMaskIfModified(); // Clear mask since terrain changed
+}
+
+// Erosion effect - reuse existing erosion code but apply to heightmap
+function applyErosionToHeightmap(heightmap, W, H, options = {}) {
+  const settings = {
+    droplets: Math.max(1, Math.floor(options.droplets ?? 1500)),
+    maxSteps: Math.max(1, Math.floor(options.maxSteps ?? 120)),
+    radius: Math.max(0.5, options.radius ?? 1.5),
+    inertia: Math.max(0, Math.min(0.99, options.inertia ?? 0.1)),
+    capacity: Math.max(0.0001, options.capacity ?? 10),
+    depositionRate: Math.max(0, Math.min(1, options.deposition ?? 0.02)),
+    erosionRate: Math.max(0, Math.min(1, options.erosionRate ?? 0.9)),
+    evaporationRate: Math.max(0, Math.min(0.99, options.evaporation ?? 0.02)),
+    gravity: Math.max(0.0001, options.gravity ?? 20),
+    minSlope: Math.max(0, options.minSlope ?? 0.05),
+    seed: options.seed ?? 0
+  };
+  
+  // Create a copy to work with
+  const heights = new Float32Array(heightmap);
+  const rand = createSeededRandom(settings.seed);
+  
+  const minWater = 0.01;
+  const tau = Math.PI * 2;
+  
+  for (let iter = 0; iter < settings.droplets; iter++) {
+    let x = rand() * (W - 1);
+    let y = rand() * (H - 1);
+    let dirX = 0;
+    let dirY = 0;
+    let speed = 1;
+    let water = 1;
+    let sediment = 0;
+    
+    let sample = sampleHeightAndGradient(heights, W, H, x, y);
+    let currentHeight = sample.height;
+    
+    for (let step = 0; step < settings.maxSteps; step++) {
+      dirX = dirX * settings.inertia - sample.gradientX * (1 - settings.inertia);
+      dirY = dirY * settings.inertia - sample.gradientY * (1 - settings.inertia);
+      
+      const len = Math.hypot(dirX, dirY);
+      if (len === 0) {
+        const angle = rand() * tau;
+        dirX = Math.cos(angle);
+        dirY = Math.sin(angle);
+      } else {
+        dirX /= len;
+        dirY /= len;
+      }
+      
+      const nx = x + dirX;
+      const ny = y + dirY;
+      
+      if (nx < 0 || nx >= W - 1 || ny < 0 || ny >= H - 1) {
+        break;
+      }
+      
+      const nextSample = sampleHeightAndGradient(heights, W, H, nx, ny);
+      const nextHeight = nextSample.height;
+      let deltaHeight = nextHeight - currentHeight;
+      
+      if (deltaHeight > 0) {
+        const depositAmount = Math.min(deltaHeight, sediment);
+        if (depositAmount > 0) {
+          depositSedimentAt(heights, W, H, x, y, depositAmount);
+          sediment -= depositAmount;
+          deltaHeight -= depositAmount;
+        }
+        if (deltaHeight > 0.001) {
+          break;
+        }
+      }
+      
+      const slope = Math.max(-deltaHeight, settings.minSlope);
+      const capacity = slope * speed * water * settings.capacity;
+      
+      if (sediment > capacity) {
+        const depositAmount = (sediment - capacity) * settings.depositionRate;
+        if (depositAmount > 0) {
+          depositSedimentAt(heights, W, H, x, y, depositAmount);
+          sediment -= depositAmount;
+        }
+      } else {
+        const desiredErode = (capacity - sediment) * settings.erosionRate;
+        const erodeAmount = Math.min(desiredErode, -deltaHeight + 1e-3);
+        if (erodeAmount > 0) {
+          // Use radius-based erosion similar to erodeSedimentAt
+          const radiusInt = Math.max(1, Math.ceil(settings.radius));
+          const cx = Math.floor(nx);
+          const cy = Math.floor(ny);
+          const indices = [];
+          let totalWeight = 0;
+          
+          for (let yy = cy - radiusInt; yy <= cy + radiusInt; yy++) {
+            if (yy < 0 || yy >= H) continue;
+            for (let xx = cx - radiusInt; xx <= cx + radiusInt; xx++) {
+              if (xx < 0 || xx >= W) continue;
+              const dx = (xx + 0.5) - nx;
+              const dy = (yy + 0.5) - ny;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist > settings.radius) continue;
+              const weight = 1 - dist / settings.radius;
+              if (weight <= 0) continue;
+              indices.push({ idx: yy * W + xx, weight });
+              totalWeight += weight;
+            }
+          }
+          
+          if (totalWeight > 1e-6) {
+            const invTotal = 1 / totalWeight;
+            let removedTotal = 0;
+            for (let i = 0; i < indices.length; i++) {
+              const { idx, weight } = indices[i];
+              const portion = erodeAmount * weight * invTotal;
+              const available = Math.min(portion, heights[idx]);
+              if (available <= 0) continue;
+              heights[idx] -= available;
+              removedTotal += available;
+            }
+            sediment += removedTotal;
+          }
+        }
+      }
+      
+      const dh = currentHeight - nextHeight;
+      speed = Math.sqrt(Math.max(0.0001, speed * speed + dh * settings.gravity));
+      water *= 1 - settings.evaporationRate;
+      if (water <= minWater) {
+        break;
+      }
+      
+      x = nx;
+      y = ny;
+      sample = nextSample;
+      currentHeight = nextHeight;
+    }
+  }
+  
+  return heights;
+}
+
+function updateErosionTerrainPreview() {
+  if (!state.heightmap || !state.previewHeightmap) return;
+  const W = state.resizedWidth, H = state.resizedHeight;
+  
+  const options = {
+    seed: parseInt(el.erosionTerrainSeed?.value || 0, 10),
+    droplets: parseInt(el.erosionTerrainDroplets?.value || 1500, 10),
+    maxSteps: parseInt(el.erosionTerrainMaxSteps?.value || 120, 10),
+    radius: parseFloat(el.erosionTerrainRadius?.value || 1.5),
+    inertia: parseFloat(el.erosionTerrainInertia?.value || 0.1),
+    capacity: parseInt(el.erosionTerrainCapacity?.value || 10, 10),
+    deposition: parseFloat(el.erosionTerrainDeposition?.value || 0.02),
+    erosionRate: parseFloat(el.erosionTerrainErosionRate?.value || 0.9),
+    evaporation: parseFloat(el.erosionTerrainEvaporation?.value || 0.02),
+    gravity: parseInt(el.erosionTerrainGravity?.value || 20, 10),
+    minSlope: parseFloat(el.erosionTerrainMinSlope?.value || 0.05)
+  };
+  
+  const eroded = applyErosionToHeightmap(state.heightmap, W, H, options);
+  state.previewHeightmap.set(eroded);
+  
+  // Temporarily use preview heightmap for rendering
+  const original = state.heightmap;
+  state.heightmap = state.previewHeightmap;
+  render3DPreview();
+  state.heightmap = original;
+}
+
+function applyErosionTerrain() {
+  if (!state.heightmap || !state.previewHeightmap) return;
+  const W = state.resizedWidth, H = state.resizedHeight;
+  
+  const options = {
+    seed: parseInt(el.erosionTerrainSeed?.value || 0, 10),
+    droplets: parseInt(el.erosionTerrainDroplets?.value || 1500, 10),
+    maxSteps: parseInt(el.erosionTerrainMaxSteps?.value || 120, 10),
+    radius: parseFloat(el.erosionTerrainRadius?.value || 1.5),
+    inertia: parseFloat(el.erosionTerrainInertia?.value || 0.1),
+    capacity: parseInt(el.erosionTerrainCapacity?.value || 10, 10),
+    deposition: parseFloat(el.erosionTerrainDeposition?.value || 0.02),
+    erosionRate: parseFloat(el.erosionTerrainErosionRate?.value || 0.9),
+    evaporation: parseFloat(el.erosionTerrainEvaporation?.value || 0.02),
+    gravity: parseInt(el.erosionTerrainGravity?.value || 20, 10),
+    minSlope: parseFloat(el.erosionTerrainMinSlope?.value || 0.05)
+  };
+  
+  // Save snapshot before applying
+  if (!terrainEditorPreSnapshotSaved) {
+    terrainEditorPreSnapshotSaved = true;
+  }
+  
+  const eroded = applyErosionToHeightmap(state.heightmap, W, H, options);
+  state.heightmap.set(eroded);
+  state.previewHeightmap.set(eroded);
+  
+  // Don't call resizeHeightmapImage() as it would regenerate from original image
+  // The heightmap is already updated with the erosion
+  
+  render3DPreview();
+  clearMaskIfModified(); // Clear mask since terrain changed
+}
+
+// Terrain editor event listeners
+if (el.editTerrainBtn) {
+  el.editTerrainBtn.addEventListener('click', () => {
+    openTerrainEditorPanel('blur');
+  });
+}
+
+if (el.closeTerrainEditor) {
+  el.closeTerrainEditor.addEventListener('click', closeTerrainEditorPanel);
+}
+
+if (el.selectBlurTerrain) {
+  el.selectBlurTerrain.addEventListener('click', () => {
+    openTerrainEditorPanel('blur');
+  });
+}
+
+if (el.selectErosionTerrain) {
+  el.selectErosionTerrain.addEventListener('click', () => {
+    openTerrainEditorPanel('erosion');
+  });
+}
+
+// Blur controls
+if (el.blurRadius) {
+  el.blurRadius.addEventListener('input', (e) => {
+    if (el.blurRadiusValue) el.blurRadiusValue.textContent = e.target.value;
+    updateBlurTerrainPreview();
+  });
+}
+
+if (el.blurIterations) {
+  el.blurIterations.addEventListener('input', (e) => {
+    if (el.blurIterationsValue) el.blurIterationsValue.textContent = e.target.value;
+    updateBlurTerrainPreview();
+  });
+}
+
+if (el.applyBlurTerrain) {
+  el.applyBlurTerrain.addEventListener('click', applyBlurTerrain);
+}
+
+// Erosion controls - update value displays
+const erosionValueUpdates = [
+  { input: 'erosionTerrainDroplets', display: 'erosionTerrainDropletsValue' },
+  { input: 'erosionTerrainMaxSteps', display: 'erosionTerrainMaxStepsValue' },
+  { input: 'erosionTerrainRadius', display: 'erosionTerrainRadiusValue' },
+  { input: 'erosionTerrainInertia', display: 'erosionTerrainInertiaValue' },
+  { input: 'erosionTerrainCapacity', display: 'erosionTerrainCapacityValue' },
+  { input: 'erosionTerrainDeposition', display: 'erosionTerrainDepositionValue' },
+  { input: 'erosionTerrainErosionRate', display: 'erosionTerrainErosionRateValue' },
+  { input: 'erosionTerrainEvaporation', display: 'erosionTerrainEvaporationValue' },
+  { input: 'erosionTerrainGravity', display: 'erosionTerrainGravityValue' },
+  { input: 'erosionTerrainMinSlope', display: 'erosionTerrainMinSlopeValue' }
+];
+
+erosionValueUpdates.forEach(({ input, display }) => {
+  const inputEl = el[input];
+  const displayEl = el[display];
+  if (inputEl && displayEl) {
+    inputEl.addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      displayEl.textContent = value.toFixed(value < 1 ? 2 : 0);
+      updateErosionTerrainPreview();
+    });
+  }
+});
+
+if (el.applyErosionTerrain) {
+  el.applyErosionTerrain.addEventListener('click', applyErosionTerrain);
 }
 
 // Initialize undo/redo buttons
