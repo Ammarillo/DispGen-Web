@@ -2933,6 +2933,7 @@ el.heightmapInput.addEventListener('change', async (e) => {
     if (el.generateVisBlocks) {
       el.generateVisBlocks.disabled = false;
     }
+    updateTabStates(); // Enable Material, Skybox, and Visibility tabs
     render3DPreview();
     updateSkyboxInfoDisplay();
     updateSkyboxVisualization();
@@ -2942,9 +2943,34 @@ el.heightmapInput.addEventListener('change', async (e) => {
   }
 });
 
+// Helper function to check if mask has been modified (contains non-zero values)
+function hasMaskBeenModified() {
+  if (!state.mask) return false;
+  for (let i = 0; i < state.mask.length; i++) {
+    if (state.mask[i] !== 0) return true;
+  }
+  return false;
+}
+
+// Helper function to clear mask and reset history
+function clearMaskIfModified() {
+  if (hasMaskBeenModified()) {
+    if (state.mask) state.mask.fill(0);
+    // Reset mask history since the mask is now invalid
+    state.maskHistory = [];
+    state.maskHistoryIndex = -1;
+    updateUndoRedoButtons();
+    updateExportMaskButton();
+    // Re-render preview to remove mask overlay
+    if (state.heightmap) render3DPreview();
+  }
+}
+
 for (const id of ['tilesX','tilesY','tileSize','maxHeight']) {
   el[id].addEventListener('input', () => {
     clampMapDimensionsIfNeeded();
+    // Clear mask if it was modified, since terrain parameters changed
+    clearMaskIfModified();
     resizeHeightmapImage();
     updateDimensionsLabel();
     maybeAutoPreview();
@@ -3428,7 +3454,60 @@ function isShowMaskEnabled() {
   return isMaterialTabActive();
 }
 
+// Update tab enabled/disabled states based on heightmap availability
+function updateTabStates() {
+  const hasHeightmap = !!state.heightmap;
+  
+  // Material, Skybox, and Visibility tabs require a heightmap
+  if (tabMaterial) {
+    if (hasHeightmap) {
+      tabMaterial.disabled = false;
+      tabMaterial.classList.remove('opacity-50', 'cursor-not-allowed');
+      tabMaterial.style.pointerEvents = '';
+    } else {
+      tabMaterial.disabled = true;
+      tabMaterial.classList.add('opacity-50', 'cursor-not-allowed');
+      tabMaterial.style.pointerEvents = 'none';
+    }
+  }
+  
+  if (tabSkybox) {
+    if (hasHeightmap) {
+      tabSkybox.disabled = false;
+      tabSkybox.classList.remove('opacity-50', 'cursor-not-allowed');
+      tabSkybox.style.pointerEvents = '';
+    } else {
+      tabSkybox.disabled = true;
+      tabSkybox.classList.add('opacity-50', 'cursor-not-allowed');
+      tabSkybox.style.pointerEvents = 'none';
+    }
+  }
+  
+  if (tabVisOptimisation) {
+    if (hasHeightmap) {
+      tabVisOptimisation.disabled = false;
+      tabVisOptimisation.classList.remove('opacity-50', 'cursor-not-allowed');
+      tabVisOptimisation.style.pointerEvents = '';
+    } else {
+      tabVisOptimisation.disabled = true;
+      tabVisOptimisation.classList.add('opacity-50', 'cursor-not-allowed');
+      tabVisOptimisation.style.pointerEvents = 'none';
+    }
+  }
+}
+
 function switchTab(tabName) {
+  // Prevent switching to disabled tabs
+  if (tabName === 'material' && (!state.heightmap || tabMaterial?.disabled)) {
+    return;
+  }
+  if (tabName === 'skybox' && (!state.heightmap || tabSkybox?.disabled)) {
+    return;
+  }
+  if (tabName === 'visoptimisation' && (!state.heightmap || tabVisOptimisation?.disabled)) {
+    return;
+  }
+  
   // Reset all tabs
   [tabTerrain, tabMaterial, tabSkybox, tabVisOptimisation].forEach(tab => {
     if (tab) {
@@ -3477,6 +3556,9 @@ if (tabSkybox) {
 if (tabVisOptimisation) {
   tabVisOptimisation.addEventListener('click', () => switchTab('visoptimisation'));
 }
+
+// Initialize tab states on page load
+updateTabStates();
 
 // ------------------------ Number Input Counter ------------------------
 function setupInputCounter(inputId) {
