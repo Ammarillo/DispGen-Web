@@ -1,7 +1,7 @@
 // App state and UI wiring for DispGen (Web)
 // Use local three.js package instead of CDN
 import * as THREE from 'three';
-import { OrbitControls } from '/src/threejs/OrbitControls.js';
+import { OrbitControls } from './src/three.js/OrbitControls.js';
 
 // --------------------------- DOM ---------------------------
 const el = {
