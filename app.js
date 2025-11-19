@@ -1,6 +1,7 @@
 // App state and UI wiring for DispGen (Web)
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js?module';
+// Use local three.js package instead of CDN
+import * as THREE from 'three';
+import { OrbitControls } from '/src/three.js/OrbitControls.js';
 
 // --------------------------- DOM ---------------------------
 const el = {
@@ -79,6 +80,9 @@ const el = {
   generateVisBlocksSpinner: document.getElementById('generateVisBlocksSpinner'),
   cancelVisBlocks: document.getElementById('cancelVisBlocks'),
   showVisBlocks: document.getElementById('showVisBlocks'),
+  visLayerControl: document.getElementById('visLayerControl'),
+  visLayerSlider: document.getElementById('visLayerSlider'),
+  visLayerValue: document.getElementById('visLayerValue'),
   // Terrain editor elements
   editTerrainBtn: document.getElementById('editTerrainBtn'),
   terrainNormalMode: document.getElementById('terrainNormalMode'),
@@ -211,15 +215,29 @@ const state = {
 };
 
 // ------------------------ Helpers ---------------------------
+/**
+ * Safely parse an integer value from an input element. If the element is missing
+ * or its value is not a finite integer, returns the provided fallback.
+ */
+function safeParseInt(inputEl, fallback) {
+  try {
+    if (!inputEl) return fallback;
+    const v = parseInt(inputEl.value, 10);
+    return Number.isFinite(v) ? v : fallback;
+  } catch (err) {
+    return fallback;
+  }
+}
+
 function unitsToMeters(units) {
   return Math.round((units / 39.37) * 100) / 100;
 }
 
 function updateDimensionsLabel() {
-  const numTilesX = parseInt(el.tilesX.value, 10);
-  const numTilesY = parseInt(el.tilesY.value, 10);
-  const tileSize = parseInt(el.tileSize.value, 10);
-  const maxHeight = parseInt(el.maxHeight.value, 10);
+  const numTilesX = safeParseInt(el.tilesX, 32);
+  const numTilesY = safeParseInt(el.tilesY, 32);
+  const tileSize = safeParseInt(el.tileSize, 512);
+  const maxHeight = safeParseInt(el.maxHeight, 2048);
 
   const totalWidth = numTilesX * tileSize;
   const totalDepth = numTilesY * tileSize;
@@ -247,8 +265,8 @@ function saveMaskState() {
 
 // Clamp dimensional inputs to the inner max (32766 units) to leave 1-unit skybox margins
 function clampMapDimensionsIfNeeded() {
-  let tileSize = parseInt(el.tileSize.value, 10);
-  if (isNaN(tileSize) || tileSize <= 0) return false;
+  let tileSize = safeParseInt(el.tileSize, NaN);
+  if (!Number.isFinite(tileSize) || tileSize <= 0) return false;
   const maxInner = state.skybox?.maxMapSize ?? 32766;
   let changed = false;
   if (tileSize > maxInner) {
@@ -256,8 +274,8 @@ function clampMapDimensionsIfNeeded() {
     el.tileSize.value = maxInner;
     changed = true;
   }
-  const tilesX = parseInt(el.tilesX.value, 10);
-  const tilesY = parseInt(el.tilesY.value, 10);
+  const tilesX = safeParseInt(el.tilesX, NaN);
+  const tilesY = safeParseInt(el.tilesY, NaN);
   const maxTiles = Math.max(1, Math.floor(maxInner / tileSize));
 
   if (!isNaN(tilesX) && tilesX > maxTiles) {
@@ -268,7 +286,7 @@ function clampMapDimensionsIfNeeded() {
     el.tilesY.value = maxTiles;
     changed = true;
   }
-  const maxHeight = parseInt(el.maxHeight.value, 10);
+  const maxHeight = safeParseInt(el.maxHeight, NaN);
   if (!isNaN(maxHeight) && maxHeight > maxInner) {
     el.maxHeight.value = maxInner;
     changed = true;
@@ -2136,10 +2154,10 @@ function ensureThree() {
       const hit = raycaster.intersectObject(state.three.mesh, true)[0];
       if (hit) {
         const radius = (parseInt(el.brushSize.value, 10) || 16);
-        const tilesX = parseInt(el.tilesX.value, 10);
-        const tilesY = parseInt(el.tilesY.value, 10);
-        const tileSize = parseInt(el.tileSize.value, 10);
-        const maxHeight = parseInt(el.maxHeight.value, 10);
+  const tilesX = safeParseInt(el.tilesX, 32);
+  const tilesY = safeParseInt(el.tilesY, 32);
+  const tileSize = safeParseInt(el.tileSize, 512);
+  const maxHeight = safeParseInt(el.maxHeight, 2048);
         const W = state.resizedWidth, H = state.resizedHeight;
         const worldRadius = (radius / (W - 1)) * (tilesX * tileSize);
         
@@ -2423,11 +2441,11 @@ function bilinearSample(hm, w, h, fx, fy) {
 function render3DPreview() {
   if (!state.heightmap) return;
   const { renderer, scene, camera, controls } = ensureThree();
-  const tilesX = parseInt(el.tilesX.value, 10);
-  const tilesY = parseInt(el.tilesY.value, 10);
-  const tileSize = parseInt(el.tileSize.value, 10);
-  const heightScale = parseInt(el.maxHeight.value, 10);
-  const powerLevel = parseInt(el.dispPower.value, 10);
+  const tilesX = safeParseInt(el.tilesX, 32);
+  const tilesY = safeParseInt(el.tilesY, 32);
+  const tileSize = safeParseInt(el.tileSize, 512);
+  const heightScale = safeParseInt(el.maxHeight, 2048);
+  const powerLevel = safeParseInt(el.dispPower, 3);
   const resolution = 2 ** powerLevel;
 
   const mapWidth = tilesX * tileSize;
@@ -2644,7 +2662,14 @@ function render3DPreview() {
     const indices = [];
     let vertexOffset = 0;
 
+    // Determine selected layer (-1 = all)
+    const selectedLayer = el.visLayerSlider ? safeParseInt(el.visLayerSlider, -1) : -1;
+    const gridDensityForLayer = state.visGridDensity || safeParseInt(el.visGridDensity, 256);
+
     for (const block of state.visBlocks) {
+      // Compute this block's layer index based on its z world coordinate and grid density
+      const blockLayer = Math.round((block.z) / (gridDensityForLayer || 1));
+      if (selectedLayer !== -1 && blockLayer !== selectedLayer) continue;
       const halfX = block.widthX / 2;
       const halfY = block.widthY / 2;
       const halfZ = block.widthZ / 2;
@@ -3068,8 +3093,25 @@ if (el.cancelVisBlocks) {
 
 if (el.showVisBlocks) {
   el.showVisBlocks.addEventListener('change', () => {
+    // Toggle vis layer control visibility when showVisBlocks is toggled
+    if (el.visLayerControl) {
+      el.visLayerControl.style.display = el.showVisBlocks.checked ? '' : 'none';
+    }
     if (state.heightmap) render3DPreview();
   });
+}
+
+// Wire vis layer slider events
+if (el.visLayerSlider) {
+  el.visLayerSlider.addEventListener('input', () => {
+    if (el.visLayerValue) el.visLayerValue.textContent = el.visLayerSlider.value;
+    if (state.heightmap) render3DPreview();
+  });
+}
+
+// Initialize vis layer control visibility based on checkbox state
+if (el.visLayerControl && el.showVisBlocks) {
+  el.visLayerControl.style.display = el.showVisBlocks.checked ? '' : 'none';
 }
 
 // Initial label
@@ -3428,13 +3470,13 @@ function generateVisBlocks() {
     return;
   }
   
-  const gridDensity = parseInt(el.visGridDensity.value, 10);
+  const gridDensity = safeParseInt(el.visGridDensity, 256);
   if (!gridDensity || gridDensity <= 0) {
     alert('Grid density must be greater than 0');
     return;
   }
   
-  const iterations = parseInt(el.visIterations.value, 10);
+  const iterations = safeParseInt(el.visIterations, 64);
   if (!iterations || iterations <= 0) {
     alert('Iterations must be greater than 0');
     return;
@@ -3499,6 +3541,10 @@ function generateVisBlocks() {
       const gridSizeX = Math.ceil(totalWidth / gridDensity);
       const gridSizeY = Math.ceil(totalDepth / gridDensity);
       const gridSizeZ = Math.ceil(maxHeight / gridDensity);
+      
+      // Store grid info for UI (slider) and rendering
+      state.visGridSizeZ = gridSizeZ;
+      state.visGridDensity = gridDensity;
       const totalCells = gridSizeX * gridSizeY * gridSizeZ;
       
       const cancelledText = state.visMeshCancelled ? ' (Cancelled - using best result so far)' : '';
@@ -3511,6 +3557,18 @@ function generateVisBlocks() {
         `Reduction: ${((1 - blocks.length / totalCells) * 100).toFixed(1)}%${cancelledText}`;
     }
     
+    // Update vis layer slider range and UI
+    if (el.visLayerSlider) {
+    const maxLayer = Math.max(0, Math.ceil(safeParseInt(el.maxHeight, 2048) / gridDensity) - 1, state.visGridSizeZ - 1);
+      el.visLayerSlider.max = String(maxLayer);
+      // Update label showing max
+      const maxLabel = document.getElementById('visLayerMaxLabel');
+      if (maxLabel) maxLabel.textContent = String(maxLayer);
+      // Reset to -1 (show all) by default
+      el.visLayerSlider.value = '-1';
+      if (el.visLayerValue) el.visLayerValue.textContent = '-1';
+    }
+
     // Re-render preview to show blocks
     if (state.heightmap) render3DPreview();
   }, 10);
