@@ -3130,32 +3130,81 @@ function rasterizeTerrain3D(gridDensity) {
         const worldY = (gy + 0.5) * gridDensity - totalDepth / 2;
         const worldZ = (gz + 0.5) * gridDensity;
         
-        // Check all 8 corners of the cell
+        // Check all 8 corners of the cell and additionally sample along each cube edge
+        // to avoid "leaking" where terrain dips between corners.
         const cellHalfSize = gridDensity / 2;
+        // Add a small margin so vis blocks stay some distance beneath the terrain surface.
+        // This prevents blocks that touch the terrain from being generated; margin is in world units.
+        const visBlockMargin = 16;
         let allBelow = true;
-        
-        for (let dx = -1; dx <= 1; dx += 2) {
-          for (let dy = -1; dy <= 1; dy += 2) {
-            for (let dz = -1; dz <= 1; dz += 2) {
-              const cornerX = worldX + dx * cellHalfSize;
-              const cornerY = worldY + dy * cellHalfSize;
-              const cornerZ = worldZ + dz * cellHalfSize;
-              
-              // Sample terrain height at this corner's X,Y position
-              const hmX = worldToHeightmapX(cornerX);
-              const hmY = worldToHeightmapY(cornerY);
-              const terrainHeight = bilinearSample(state.heightmap, W, H, hmX, hmY);
-              const terrainZ = (terrainHeight / 255.0) * maxHeight;
-              
-              // Check if corner is below terrain
-              if (cornerZ >= terrainZ) {
+
+        // Define the 8 cube corner offsets
+        const cornerOffsets = [
+          [-1, -1, -1],
+          [ 1, -1, -1],
+          [-1,  1, -1],
+          [ 1,  1, -1],
+          [-1, -1,  1],
+          [ 1, -1,  1],
+          [-1,  1,  1],
+          [ 1,  1,  1]
+        ];
+
+        // Helper to sample terrain Z at world X,Y
+        const sampleTerrainZ = (x, y) => {
+          const hmX = worldToHeightmapX(x);
+          const hmY = worldToHeightmapY(y);
+          const terrainHeight = bilinearSample(state.heightmap, W, H, hmX, hmY);
+          return (terrainHeight / 255.0) * maxHeight;
+        };
+
+        // First check corners
+        for (const off of cornerOffsets) {
+          const cornerX = worldX + off[0] * cellHalfSize;
+          const cornerY = worldY + off[1] * cellHalfSize;
+          const cornerZ = worldZ + off[2] * cellHalfSize;
+          const terrainZ = sampleTerrainZ(cornerX, cornerY);
+          // Ensure the corner is at least `visBlockMargin` units below the terrain.
+          if (cornerZ + visBlockMargin >= terrainZ) {
+            allBelow = false;
+            break;
+          }
+        }
+
+        // If corners are below terrain, additionally sample along each of the 12 edges.
+        // Sample N points per edge (including endpoints) to ensure edges are submerged.
+        if (allBelow) {
+          const edgeSampleCount = 5;
+          // Build edges by pairing corner indices that differ by exactly one axis
+          const edges = [];
+          for (let i = 0; i < cornerOffsets.length; i++) {
+            for (let j = i + 1; j < cornerOffsets.length; j++) {
+              const a = cornerOffsets[i];
+              const b = cornerOffsets[j];
+              // Count axis differences
+              let diffCount = 0;
+              for (let k = 0; k < 3; k++) if (a[k] !== b[k]) diffCount++;
+              if (diffCount === 1) edges.push([a, b]);
+            }
+          }
+
+          // For each edge, sample evenly along the edge
+          outerEdgeLoop:
+          for (const [a, b] of edges) {
+            for (let s = 0; s < edgeSampleCount; s++) {
+              const t = s / (edgeSampleCount - 1); // 0..1
+              const sampleX = worldX + ((1 - t) * a[0] + t * b[0]) * cellHalfSize;
+              const sampleY = worldY + ((1 - t) * a[1] + t * b[1]) * cellHalfSize;
+              const sampleZ = worldZ + ((1 - t) * a[2] + t * b[2]) * cellHalfSize;
+
+              const terrainZ = sampleTerrainZ(sampleX, sampleY);
+              // Ensure the sampled edge point is at least `visBlockMargin` units below the terrain.
+              if (sampleZ + visBlockMargin >= terrainZ) {
                 allBelow = false;
-                break;
+                break outerEdgeLoop;
               }
             }
-            if (!allBelow) break;
           }
-          if (!allBelow) break;
         }
         
         grid[gx][gy][gz] = allBelow;
