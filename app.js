@@ -180,10 +180,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --------------------------- State ---------------------------
 const state = {
-  originalImage: null,           // HTMLImageElement
+  originalImage: null,           // HTMLImageElement (for standard images)
+  originalFloatData: null,       // { data: Float32Array, width: number, height: number, min: number, max: number } for HDR/TIFF
   resizedWidth: 0,
   resizedHeight: 0,
-  heightmap: null,               // Float32Array of grayscale [h*w]
+  heightmap: null,               // Float32Array of grayscale [h*w], normalized 0-255
   previewHeightmap: null,        // Float32Array [h*w], temporary preview heightmap for terrain editing
   mask: null,                    // Float32Array [h*w], values 0..255
   previewMask: null,             // Float32Array [h*w], temporary preview mask
@@ -715,17 +716,28 @@ function generateHeightMask(stops = null, outputMask = null) {
   }
   
   gradientStops.sort((a, b) => a.position - b.position);
-  const lut = new Float32Array(256);
-  for (let i = 0; i < 256; i++) {
-    const t = i / 255;
+  
+  // Use high-precision direct sampling for 32-bit float support
+  // LUT interpolation for performance with acceptable precision
+  const lutSize = 4096; // Higher precision LUT for 32-bit float data
+  const lut = new Float32Array(lutSize);
+  for (let i = 0; i < lutSize; i++) {
+    const t = i / (lutSize - 1);
     lut[i] = clamp01(sampleHeightGradientValue(gradientStops, t)) * 255;
   }
   
   const hm = state.heightmap;
   for (let i = 0; i < total; i++) {
     const h = hm[i];
-    const lutIndex = Math.max(0, Math.min(255, Math.round(h)));
-    out[i] = lut[lutIndex];
+    // Map 0-255 height to 0-(lutSize-1) with linear interpolation
+    const lutPos = (h / 255) * (lutSize - 1);
+    const lutIdx0 = Math.floor(lutPos);
+    const lutIdx1 = Math.min(lutIdx0 + 1, lutSize - 1);
+    const frac = lutPos - lutIdx0;
+    // Clamp indices to valid range
+    const idx0 = Math.max(0, Math.min(lutSize - 1, lutIdx0));
+    const idx1 = Math.max(0, Math.min(lutSize - 1, lutIdx1));
+    out[i] = lut[idx0] * (1 - frac) + lut[idx1] * frac;
   }
   
   return out;
@@ -2345,8 +2357,164 @@ if (el.skyboxTopOffset) el.skyboxTopOffset.addEventListener('input', () => {
   updateSkyboxVisualization();
 });
 
+// --------------------------- TIFF/HDR Image Support ---------------------------
+// Uses GeoTIFF.js library for TIFF parsing (supports 32-bit float, deflate compression)
+
+/**
+ * Check if GeoTIFF library is available
+ */
+function isGeoTiffAvailable() {
+  return typeof GeoTIFF !== 'undefined';
+}
+
+/**
+ * Check if a file is a TIFF by extension
+ */
+function isTiffFile(file) {
+  const ext = file.name.toLowerCase().split('.').pop();
+  return ext === 'tif' || ext === 'tiff';
+}
+
+/**
+ * Parse TIFF file and extract raw float data (supports 32-bit float, 16-bit, 8-bit)
+ * Uses GeoTIFF.js which has proper deflate decompression support
+ * Returns { data: Float32Array, width, height, min, max } with values normalized to 0-255
+ */
+async function parseTiffFile(file) {
+  const buffer = await file.arrayBuffer();
+  
+  // Use GeoTIFF.js to parse the TIFF
+  const tiff = await GeoTIFF.fromArrayBuffer(buffer);
+  const image = await tiff.getImage();
+  
+  const width = image.getWidth();
+  const height = image.getHeight();
+  const samplesPerPixel = image.getSamplesPerPixel();
+  const bitsPerSample = image.getBitsPerSample();
+  const sampleFormat = image.getSampleFormat();
+  
+  console.log(`TIFF info: ${width}x${height}, ${bitsPerSample}bps, spp=${samplesPerPixel}, sampleFormat=${sampleFormat}`);
+  
+  // Read the raster data - GeoTIFF handles decompression automatically
+  const rasterData = await image.readRasters({ interleave: false });
+  
+  // Get the first band (for grayscale heightmaps)
+  const band = rasterData[0];
+  console.log(`Raster data type: ${band.constructor.name}, length: ${band.length}`);
+  
+  // Find min/max values
+  let minVal = Infinity;
+  let maxVal = -Infinity;
+  
+  for (let i = 0; i < band.length; i++) {
+    const val = band[i];
+    if (Number.isFinite(val)) {
+      if (val < minVal) minVal = val;
+      if (val > maxVal) maxVal = val;
+    }
+  }
+  
+  // Debug: sample some values
+  console.log(`Sample values: [0]=${band[0]?.toFixed?.(4) ?? band[0]}, [1000]=${band[1000]?.toFixed?.(4) ?? band[1000]}, [middle]=${band[Math.floor(band.length/2)]?.toFixed?.(4) ?? band[Math.floor(band.length/2)]}`);
+  
+  // Handle edge case where all values are the same
+  if (minVal === maxVal || !Number.isFinite(minVal) || !Number.isFinite(maxVal)) {
+    console.warn(`Invalid range detected: [${minVal}, ${maxVal}], using defaults`);
+    minVal = 0;
+    maxVal = 1;
+  }
+  
+  // Create normalized Float32Array (0-255 range)
+  const normalizedData = new Float32Array(width * height);
+  const range = maxVal - minVal;
+  
+  for (let i = 0; i < band.length; i++) {
+    const val = band[i];
+    if (Number.isFinite(val)) {
+      normalizedData[i] = ((val - minVal) / range) * 255;
+    } else {
+      normalizedData[i] = 0;
+    }
+  }
+  
+  // Debug: check normalized output
+  let normMin = Infinity, normMax = -Infinity;
+  for (let i = 0; i < normalizedData.length; i++) {
+    if (normalizedData[i] < normMin) normMin = normalizedData[i];
+    if (normalizedData[i] > normMax) normMax = normalizedData[i];
+  }
+  
+  const bps = Array.isArray(bitsPerSample) ? bitsPerSample[0] : bitsPerSample;
+  console.log(`TIFF loaded: ${width}x${height}, ${bps}-bit, raw range=[${minVal.toFixed(4)}, ${maxVal.toFixed(4)}], normalized=[${normMin.toFixed(2)}, ${normMax.toFixed(2)}]`);
+  
+  return {
+    data: normalizedData,
+    width,
+    height,
+    min: minVal,
+    max: maxVal,
+    bitsPerSample: bps,
+    sampleFormat
+  };
+}
+
+/**
+ * Bilinear resize of Float32Array heightmap data
+ */
+function resizeFloatData(src, srcW, srcH, dstW, dstH) {
+  const dst = new Float32Array(dstW * dstH);
+  const xRatio = (srcW - 1) / Math.max(1, dstW - 1);
+  const yRatio = (srcH - 1) / Math.max(1, dstH - 1);
+  
+  for (let j = 0; j < dstH; j++) {
+    const srcY = j * yRatio;
+    const y0 = Math.floor(srcY);
+    const y1 = Math.min(y0 + 1, srcH - 1);
+    const dy = srcY - y0;
+    
+    for (let i = 0; i < dstW; i++) {
+      const srcX = i * xRatio;
+      const x0 = Math.floor(srcX);
+      const x1 = Math.min(x0 + 1, srcW - 1);
+      const dx = srcX - x0;
+      
+      // Bilinear interpolation
+      const v00 = src[y0 * srcW + x0];
+      const v10 = src[y0 * srcW + x1];
+      const v01 = src[y1 * srcW + x0];
+      const v11 = src[y1 * srcW + x1];
+      
+      const v0 = v00 * (1 - dx) + v10 * dx;
+      const v1 = v01 * (1 - dx) + v11 * dx;
+      
+      dst[j * dstW + i] = v0 * (1 - dy) + v1 * dy;
+    }
+  }
+  
+  return dst;
+}
+
 // Draw and mirror image horizontally, then resize to tiles*8 using canvas
 async function loadAndPrepareImage(file) {
+  // Check if it's a TIFF file and GeoTIFF library is available (supports 32-bit float)
+  if (isTiffFile(file) && isGeoTiffAvailable()) {
+    try {
+      const tiffData = await parseTiffFile(file);
+      
+      // Store original float data for high-precision resizing
+      state.originalFloatData = tiffData;
+      state.originalImage = null; // Clear standard image
+      
+      await resizeHeightmapImage();
+      return;
+    } catch (err) {
+      console.error('Failed to parse TIFF as HDR, falling back to standard loader:', err);
+      // Fall through to standard image loading
+    }
+  }
+  
+  // Standard image loading (8-bit per channel)
+  state.originalFloatData = null; // Clear TIFF data
   const url = URL.createObjectURL(file);
   try {
     const img = new Image();
@@ -2363,49 +2531,75 @@ async function loadAndPrepareImage(file) {
 }
 
 function resizeHeightmapImage() {
-  if (!state.originalImage) return;
+  // Need either originalFloatData (TIFF/HDR) or originalImage (standard)
+  if (!state.originalFloatData && !state.originalImage) return;
+  
   clampMapDimensionsIfNeeded();
   const tilesX = parseInt(el.tilesX.value, 10);
   const tilesY = parseInt(el.tilesY.value, 10);
   const targetW = tilesX * 8;
   const targetH = tilesY * 8;
 
-  // Draw original mirrored horizontally into a temp canvas as grayscale
-  const srcCanvas = document.createElement('canvas');
-  srcCanvas.width = state.originalImage.width;
-  srcCanvas.height = state.originalImage.height;
-  const sctx = srcCanvas.getContext('2d');
-  sctx.save();
-  sctx.translate(srcCanvas.width, 0);
-  sctx.scale(-1, 1);
-  sctx.drawImage(state.originalImage, 0, 0);
-  sctx.restore();
+  let out;
+  
+  if (state.originalFloatData) {
+    // TIFF/HDR path: use high-precision float data with bilinear resizing
+    const srcData = state.originalFloatData.data;
+    const srcW = state.originalFloatData.width;
+    const srcH = state.originalFloatData.height;
+    
+    // First mirror horizontally
+    const mirrored = new Float32Array(srcW * srcH);
+    for (let y = 0; y < srcH; y++) {
+      for (let x = 0; x < srcW; x++) {
+        const srcIdx = y * srcW + x;
+        const dstIdx = y * srcW + (srcW - 1 - x);
+        mirrored[dstIdx] = srcData[srcIdx];
+      }
+    }
+    
+    // Then resize using bilinear interpolation
+    out = resizeFloatData(mirrored, srcW, srcH, targetW, targetH);
+    
+  } else {
+    // Standard image path: use canvas (8-bit precision)
+    // Draw original mirrored horizontally into a temp canvas as grayscale
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = state.originalImage.width;
+    srcCanvas.height = state.originalImage.height;
+    const sctx = srcCanvas.getContext('2d');
+    sctx.save();
+    sctx.translate(srcCanvas.width, 0);
+    sctx.scale(-1, 1);
+    sctx.drawImage(state.originalImage, 0, 0);
+    sctx.restore();
 
-  // Convert to grayscale in-place
-  const srcData = sctx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
-  const d = srcData.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const r = d[i], g = d[i + 1], b = d[i + 2];
-    const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-    d[i] = d[i + 1] = d[i + 2] = y;
-  }
-  sctx.putImageData(srcData, 0, 0);
+    // Convert to grayscale in-place
+    const srcImgData = sctx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
+    const d = srcImgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      d[i] = d[i + 1] = d[i + 2] = gray;
+    }
+    sctx.putImageData(srcImgData, 0, 0);
 
-  // Resize to target dimensions (bilinear via canvas)
-  const dstCanvas = document.createElement('canvas');
-  dstCanvas.width = targetW;
-  dstCanvas.height = targetH;
-  const dctx = dstCanvas.getContext('2d');
-  dctx.imageSmoothingEnabled = true;
-  dctx.imageSmoothingQuality = 'high';
-  dctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, srcCanvas.height, 0, 0, targetW, targetH);
+    // Resize to target dimensions (bilinear via canvas)
+    const dstCanvas = document.createElement('canvas');
+    dstCanvas.width = targetW;
+    dstCanvas.height = targetH;
+    const dctx = dstCanvas.getContext('2d');
+    dctx.imageSmoothingEnabled = true;
+    dctx.imageSmoothingQuality = 'high';
+    dctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, srcCanvas.height, 0, 0, targetW, targetH);
 
-  const dstData = dctx.getImageData(0, 0, targetW, targetH);
-  const out = new Float32Array(targetW * targetH);
-  const p = dstData.data;
-  for (let y = 0, idx = 0; y < targetH; y++) {
-    for (let x = 0; x < targetW; x++, idx++) {
-      out[idx] = p[idx * 4]; // red channel (grayscale)
+    const dstData = dctx.getImageData(0, 0, targetW, targetH);
+    out = new Float32Array(targetW * targetH);
+    const p = dstData.data;
+    for (let y = 0, idx = 0; y < targetH; y++) {
+      for (let x = 0; x < targetW; x++, idx++) {
+        out[idx] = p[idx * 4]; // red channel (grayscale)
+      }
     }
   }
 
@@ -2951,7 +3145,7 @@ function generateVMF() {
 
   // Add vis blocks if they exist
   if (state.visBlocks && state.visBlocks.length > 0) {
-    const visMaterial = 'dev/dev_blendmeasure';
+    const visMaterial = 'tools/toolsnodraw';
     for (const block of state.visBlocks) {
       const origin = new Vertex(
         block.x + block.widthX / 2,
