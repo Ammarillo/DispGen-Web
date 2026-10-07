@@ -2,7 +2,10 @@
 
 A web-based tool for generating Source Engine displacement terrain from heightmap images. Convert grayscale heightmaps into VMF (Valve Map Format) files with real-time 3D preview and advanced material mask editing.
 
-![DispGen Web](https://img.shields.io/badge/version-1.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![](https://img.shields.io/badge/DispGen--Web-Webapp-orange?style=flat&link=https%3A%2F%2Fammarillo.github.io%2FDispGen-Web%2F&link=https%3A%2F%2Fammarillo.github.io%2FDispGen-Web%2F)
+https://ammarillo.github.io/DispGen-Web/
+
+![DispGen Web](https://img.shields.io/badge/version-1.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) 
+
 
 ## Features
 
